@@ -109,7 +109,7 @@ static int sam9x5_wm8731_driver_probe(struct platform_device *pdev)
 	dai->stream_name = "WM8731 PCM";
 	dai->codec_dai_name = "wm8731-hifi";
 	dai->init = sam9x5_wm8731_init;
-	dai->dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF
+	dai->dai_fmt = SND_SOC_DAIFMT_DSP_A | SND_SOC_DAIFMT_NB_NF
 		| SND_SOC_DAIFMT_CBM_CFM;
 
 	ret = snd_soc_of_parse_card_name(card, "atmel,model");
@@ -192,7 +192,6 @@ MODULE_DEVICE_TABLE(of, sam9x5_wm8731_of_match);
 static struct platform_driver sam9x5_wm8731_driver = {
 	.driver = {
 		.name = DRV_NAME,
-		.owner = THIS_MODULE,
 		.of_match_table = of_match_ptr(sam9x5_wm8731_of_match),
 	},
 	.probe = sam9x5_wm8731_driver_probe,

@@ -188,9 +188,22 @@ void refresh_scan(void *pUserVoid, uint8_t all, bool bDirectScan)
 				channel = ieee80211_get_channel(wiphy, s32Freq);
 				rssi = get_rssi_avg(pstrNetworkInfo);
 				if (memcmp("DIRECT-", pstrNetworkInfo->au8ssid, 7) || bDirectScan) {
-					bss = cfg80211_inform_bss(wiphy, channel, pstrNetworkInfo->au8bssid, pstrNetworkInfo->u64Tsf, pstrNetworkInfo->u16CapInfo,
-								  pstrNetworkInfo->u16BeaconPeriod, (const u8 *)pstrNetworkInfo->pu8IEs,
-								  (size_t)pstrNetworkInfo->u16IEsLen, (((signed int)rssi) * 100), GFP_KERNEL);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)
+					bss = cfg80211_inform_bss(wiphy, channel, CFG80211_BSS_FTYPE_UNKNOWN,
+								  pstrNetworkInfo->au8bssid, pstrNetworkInfo->u64Tsf,
+								  pstrNetworkInfo->u16CapInfo, pstrNetworkInfo->u16BeaconPeriod,
+								  (const u8 *)pstrNetworkInfo->pu8IEs,
+								  (size_t)pstrNetworkInfo->u16IEsLen,
+								  (((signed int)rssi) * 100), GFP_KERNEL);
+#else
+
+					bss = cfg80211_inform_bss(wiphy, channel,
+								  pstrNetworkInfo->au8bssid, pstrNetworkInfo->u64Tsf,
+								  pstrNetworkInfo->u16CapInfo, pstrNetworkInfo->u16BeaconPeriod,
+								  (const u8 *)pstrNetworkInfo->pu8IEs,
+								  (size_t)pstrNetworkInfo->u16IEsLen,
+								  (((signed int)rssi) * 100), GFP_KERNEL);
+#endif
 				#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0)
 					cfg80211_put_bss(wiphy, bss);
 				#else
@@ -408,9 +421,24 @@ static void CfgScanResult(enum tenuScanEvent enuScanEvent,
 
 						/* P2P peers are sent to WPA supplicant and added to shadow table */
 						if (!(memcmp("DIRECT-", pstrNetworkInfo->au8ssid, 7))) {
-							bss = cfg80211_inform_bss(wiphy, channel, pstrNetworkInfo->au8bssid, pstrNetworkInfo->u64Tsf, pstrNetworkInfo->u16CapInfo,
-										  pstrNetworkInfo->u16BeaconPeriod, (const u8 *)pstrNetworkInfo->pu8IEs,
-										  (size_t)pstrNetworkInfo->u16IEsLen, (((signed int)pstrNetworkInfo->s8rssi) * 100), GFP_KERNEL);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)
+							bss = cfg80211_inform_bss(wiphy, channel, CFG80211_BSS_FTYPE_UNKNOWN,
+										  pstrNetworkInfo->au8bssid, pstrNetworkInfo->u64Tsf,
+										  pstrNetworkInfo->u16CapInfo,
+										  pstrNetworkInfo->u16BeaconPeriod,
+										  (const u8 *)pstrNetworkInfo->pu8IEs,
+										  (size_t)pstrNetworkInfo->u16IEsLen,
+										  (((signed int)pstrNetworkInfo->s8rssi) * 100), GFP_KERNEL);
+#else
+
+							bss = cfg80211_inform_bss(wiphy, channel,
+										  pstrNetworkInfo->au8bssid, pstrNetworkInfo->u64Tsf,
+										  pstrNetworkInfo->u16CapInfo,
+										  pstrNetworkInfo->u16BeaconPeriod,
+										  (const u8 *)pstrNetworkInfo->pu8IEs,
+										  (size_t)pstrNetworkInfo->u16IEsLen,
+										  (((signed int)pstrNetworkInfo->s8rssi) * 100), GFP_KERNEL);
+#endif
 						#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 9, 0)
 							cfg80211_put_bss(wiphy, bss);
 						#else
@@ -1523,9 +1551,11 @@ static int WILC_WFI_get_station(struct wiphy *wiphy, struct net_device *dev,
 
 			return s32Error;
 		}
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
+		sinfo->filled |= BIT(NL80211_STA_INFO_INACTIVE_TIME);
+#else
 		sinfo->filled |= STATION_INFO_INACTIVE_TIME;
-
+#endif
 		host_int_get_inactive_time(priv->hWILCWFIDrv, mac, &(inactive_time));
 		sinfo->inactive_time = 1000 * inactive_time;
 		PRINT_D(CFG80211_DBG, "Inactive time %d\n", sinfo->inactive_time);
@@ -1539,13 +1569,24 @@ static int WILC_WFI_get_station(struct wiphy *wiphy, struct net_device *dev,
 			return -EBUSY;
 		}
 		host_int_get_statistics(priv->hWILCWFIDrv, &strStatistics);
-	#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
-		sinfo->filled |= STATION_INFO_SIGNAL | STATION_INFO_RX_PACKETS | STATION_INFO_TX_PACKETS
-			| STATION_INFO_TX_FAILED | STATION_INFO_TX_BITRATE;
-	#else
-		sinfo->filled |= STATION_INFO_SIGNAL | STATION_INFO_RX_PACKETS | STATION_INFO_TX_PACKETS
-			| STATION_INFO_TX_BITRATE;
-	#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
+		sinfo->filled |= BIT(NL80211_STA_INFO_SIGNAL) |
+				 BIT( NL80211_STA_INFO_RX_PACKETS) |
+				 BIT(NL80211_STA_INFO_TX_PACKETS) |
+				 BIT(NL80211_STA_INFO_TX_FAILED) |
+				 BIT(NL80211_STA_INFO_TX_BITRATE);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
+		sinfo->filled |= STATION_INFO_SIGNAL |
+				 STATION_INFO_RX_PACKETS |
+				 STATION_INFO_TX_PACKETS |
+				 STATION_INFO_TX_FAILED |
+				 STATION_INFO_TX_BITRATE;
+#else
+		sinfo->filled |= STATION_INFO_SIGNAL |
+				 STATION_INFO_RX_PACKETS |
+				 STATION_INFO_TX_PACKETS |
+				 STATION_INFO_TX_BITRATE;
+#endif
 		sinfo->signal = strStatistics.s8RSSI;
 		sinfo->rx_packets = strStatistics.u32RxCount;
 		sinfo->tx_packets = strStatistics.u32TxCount + strStatistics.u32TxFailureCount;
@@ -2521,9 +2562,11 @@ static int WILC_WFI_dump_station(struct wiphy *wiphy, struct net_device *dev,
 
 	priv = wiphy_priv(wiphy);
 	/* priv = netdev_priv(priv->wdev->netdev); */
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
+	sinfo->filled |= BIT(NL80211_STA_INFO_SIGNAL);
+#else
 	sinfo->filled |= STATION_INFO_SIGNAL;
-
+#endif
 	host_int_get_rssi(priv->hWILCWFIDrv, &sinfo->signal);
 
 	return 0;

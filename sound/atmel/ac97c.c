@@ -34,13 +34,13 @@
 #include <sound/atmel-ac97c.h>
 #include <sound/memalloc.h>
 
-#include <linux/dw_dmac.h>
+#include <linux/platform_data/dma-dw.h>
+#include <linux/dma/dw.h>
 
+#ifdef CONFIG_AVR32
 #include <mach/cpu.h>
-#include <mach/gpio.h>
-
-#ifdef CONFIG_ARCH_AT91
-#include <mach/hardware.h>
+#else
+#define cpu_is_at32ap7000() 0
 #endif
 
 #include "ac97c.h"
@@ -775,9 +775,8 @@ static int atmel_ac97c_pcm_new(struct atmel_ac97c *chip)
 		if (err)
 			return err;
 	}
-
 	retval = snd_pcm_new(chip->card, chip->card->shortname,
-			     0, playback, capture, &pcm);
+			0, playback, capture, &pcm);
 	if (retval)
 		return retval;
 
@@ -908,7 +907,7 @@ static void atmel_ac97c_reset(struct atmel_ac97c *chip)
 
 #ifdef CONFIG_OF
 static const struct of_device_id atmel_ac97c_dt_ids[] = {
-	{ .compatible = "atmel,atmel_ac97c", },
+	{ .compatible = "atmel,at91sam9263-ac97c", },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, atmel_ac97c_dt_ids);
@@ -917,16 +916,9 @@ static struct ac97c_platform_data *atmel_ac97c_probe_dt(struct device *dev)
 {
 	struct ac97c_platform_data *pdata;
 	struct device_node *node = dev->of_node;
-	const struct of_device_id *match;
 
 	if (!node) {
 		dev_err(dev, "Device does not have associated DT data\n");
-		return ERR_PTR(-EINVAL);
-	}
-
-	match = of_match_device(atmel_ac97c_dt_ids, dev);
-	if (!match) {
-		dev_err(dev, "Unknown device model\n");
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -934,8 +926,7 @@ static struct ac97c_platform_data *atmel_ac97c_probe_dt(struct device *dev)
 	if (!pdata)
 		return ERR_PTR(-ENOMEM);
 
-	pdata->reset_pin = of_get_named_gpio(dev->of_node,
-					     "atmel,reset-pin", 0);
+	pdata->reset_pin = of_get_named_gpio(dev->of_node, "ac97-gpios", 2);
 
 	return pdata;
 }
@@ -990,10 +981,11 @@ static int atmel_ac97c_probe(struct platform_device *pdev)
 		dev_dbg(&pdev->dev, "no peripheral clock\n");
 		return PTR_ERR(pclk);
 	}
-	clk_enable(pclk);
+	clk_prepare_enable(pclk);
 
-	retval = snd_card_create(SNDRV_DEFAULT_IDX1, SNDRV_DEFAULT_STR1,
-			THIS_MODULE, sizeof(struct atmel_ac97c), &card);
+	retval = snd_card_new(&pdev->dev, SNDRV_DEFAULT_IDX1,
+			      SNDRV_DEFAULT_STR1, THIS_MODULE,
+			      sizeof(struct atmel_ac97c), &card);
 	if (retval) {
 		dev_dbg(&pdev->dev, "could not create sound card device\n");
 		goto err_snd_card_new;
@@ -1036,8 +1028,6 @@ static int atmel_ac97c_probe(struct platform_device *pdev)
 	} else {
 		chip->reset_pin = -EINVAL;
 	}
-
-	snd_card_set_dev(card, &pdev->dev);
 
 	atmel_ac97c_reset(chip);
 
@@ -1160,8 +1150,6 @@ err_dma:
 		chip->dma.tx_chan = NULL;
 	}
 err_ac97_bus:
-	snd_card_set_dev(card, NULL);
-
 	if (gpio_is_valid(chip->reset_pin))
 		gpio_free(chip->reset_pin);
 
@@ -1171,7 +1159,7 @@ err_ioremap:
 err_request_irq:
 	snd_card_free(card);
 err_snd_card_new:
-	clk_disable(pclk);
+	clk_disable_unprepare(pclk);
 	clk_put(pclk);
 	return retval;
 }
@@ -1188,7 +1176,7 @@ static int atmel_ac97c_suspend(struct device *pdev)
 		if (test_bit(DMA_TX_READY, &chip->flags))
 			dw_dma_cyclic_stop(chip->dma.tx_chan);
 	}
-	clk_disable(chip->pclk);
+	clk_disable_unprepare(chip->pclk);
 
 	return 0;
 }
@@ -1198,7 +1186,7 @@ static int atmel_ac97c_resume(struct device *pdev)
 	struct snd_card *card = dev_get_drvdata(pdev);
 	struct atmel_ac97c *chip = card->private_data;
 
-	clk_enable(chip->pclk);
+	clk_prepare_enable(chip->pclk);
 	if (cpu_is_at32ap7000()) {
 		if (test_bit(DMA_RX_READY, &chip->flags))
 			dw_dma_cyclic_start(chip->dma.rx_chan);
@@ -1226,7 +1214,7 @@ static int atmel_ac97c_remove(struct platform_device *pdev)
 	ac97c_writel(chip, COMR, 0);
 	ac97c_writel(chip, MR,   0);
 
-	clk_disable(chip->pclk);
+	clk_disable_unprepare(chip->pclk);
 	clk_put(chip->pclk);
 	iounmap(chip->regs);
 	free_irq(chip->irq, chip);
@@ -1242,7 +1230,6 @@ static int atmel_ac97c_remove(struct platform_device *pdev)
 		chip->dma.tx_chan = NULL;
 	}
 
-	snd_card_set_dev(card, NULL);
 	snd_card_free(card);
 
 	return 0;
@@ -1253,7 +1240,6 @@ static struct platform_driver atmel_ac97c_driver = {
 	.remove		= atmel_ac97c_remove,
 	.driver		= {
 		.name	= "atmel_ac97c",
-		.owner	= THIS_MODULE,
 		.pm	= ATMEL_AC97C_PM_OPS,
 		.of_match_table = of_match_ptr(atmel_ac97c_dt_ids),
 	},

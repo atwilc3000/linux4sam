@@ -15,16 +15,19 @@
  */
 
 #include <linux/bitops.h>
+#include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/of_gpio.h>
 #include <linux/slab.h>
 #include <linux/videodev2.h>
-#include <linux/module.h>
 #include <linux/v4l2-mediabus.h>
 
 #include <media/soc_camera.h>
-#include <media/v4l2-chip-ident.h>
+#include <media/v4l2-clk.h>
 #include <media/v4l2-subdev.h>
 
 /* OV5642 registers */
@@ -5043,7 +5046,7 @@ static struct regval_list ov5640_afc_regs_init[]= {
 };
 
 struct ov5642_datafmt {
-	enum v4l2_mbus_pixelcode	code;
+	u32	code;
 	enum v4l2_colorspace		colorspace;
 };
 
@@ -5051,16 +5054,22 @@ struct ov5642 {
 	struct v4l2_subdev		subdev;
 	const struct ov5642_datafmt	*fmt;
 	struct v4l2_rect                crop_rect;
+	struct v4l2_clk			*clk;
+	struct clk			*xvclk;
 
 	/* blanking information */
 	int total_width;
 	int total_height;
 
 	bool is_ov5640;	/* true means is ov5640. */
+
+	struct soc_camera_subdev_desc	ssdd_dt;
+	struct gpio_desc *resetb_gpio;
+	struct gpio_desc *pwdn_gpio;
 };
 
 static const struct ov5642_datafmt ov5642_colour_fmts[] = {
-	{V4L2_MBUS_FMT_UYVY8_2X8, V4L2_COLORSPACE_JPEG},
+	{MEDIA_BUS_FMT_UYVY8_2X8, V4L2_COLORSPACE_JPEG},
 };
 
 static struct ov5642 *to_ov5642(const struct i2c_client *client)
@@ -5070,7 +5079,7 @@ static struct ov5642 *to_ov5642(const struct i2c_client *client)
 
 /* Find a data format by a pixel code in an array */
 static const struct ov5642_datafmt
-			*ov5642_find_datafmt(enum v4l2_mbus_pixelcode code)
+			*ov5642_find_datafmt(u32 code)
 {
 	int i;
 
@@ -5084,7 +5093,7 @@ static const struct ov5642_datafmt
 static int reg_read(struct i2c_client *client, u16 reg, u8 *val)
 {
 	int ret;
-	/* We have 16-bit i2c addresses - care for endianess */
+	/* We have 16-bit i2c addresses - care for endianness */
 	unsigned char data[2] = { reg >> 8, reg & 0xff };
 
 	ret = i2c_master_send(client, data, 2);
@@ -5430,29 +5439,12 @@ static int ov5642_g_fmt(struct v4l2_subdev *sd,
 }
 
 static int ov5642_enum_fmt(struct v4l2_subdev *sd, unsigned int index,
-			   enum v4l2_mbus_pixelcode *code)
+			   u32 *code)
 {
 	if (index >= ARRAY_SIZE(ov5642_colour_fmts))
 		return -EINVAL;
 
 	*code = ov5642_colour_fmts[index].code;
-	return 0;
-}
-
-static int ov5642_g_chip_ident(struct v4l2_subdev *sd,
-			       struct v4l2_dbg_chip_ident *id)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-
-	if (id->match.type != V4L2_CHIP_MATCH_I2C_ADDR)
-		return -EINVAL;
-
-	if (id->match.addr != client->addr)
-		return -ENODEV;
-
-	id->ident	= V4L2_IDENT_OV5642;
-	id->revision	= 0;
-
 	return 0;
 }
 
@@ -5549,6 +5541,8 @@ static int ov5642_g_mbus_config(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int ov5642_hw_reset(struct device *dev);
+
 static int ov5642_s_power(struct v4l2_subdev *sd, int on)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -5559,15 +5553,23 @@ static int ov5642_s_power(struct v4l2_subdev *sd, int on)
 	dev_dbg(&client->dev, "ov5642_s_power(): width = %d, height = %d\n",
 		priv->crop_rect.width, priv->crop_rect.height);
 
-	if (!on)
-		return soc_camera_power_off(&client->dev, ssdd);
+	if (!on) {
+		clk_disable_unprepare(priv->xvclk);
+		return soc_camera_power_off(&client->dev, ssdd, priv->clk);
+	}
 
-	ret = soc_camera_power_on(&client->dev, ssdd);
+	ret = clk_prepare_enable(priv->xvclk);
 	if (ret < 0)
 		return ret;
 
-	if (ssdd->reset)
-		ssdd->reset(&client->dev);
+	ret = soc_camera_power_on(&client->dev, ssdd, priv->clk);
+	if (ret < 0) {
+		clk_disable_unprepare(priv->xvclk);
+		return ret;
+	}
+
+	/* Add reset when power on the camera according to the datasheet */
+	ov5642_hw_reset(&client->dev);
 
 	/* ov5640 */
 	if (priv->is_ov5640) {
@@ -5625,7 +5627,6 @@ static struct v4l2_subdev_video_ops ov5642_subdev_video_ops = {
 
 static struct v4l2_subdev_core_ops ov5642_subdev_core_ops = {
 	.s_power	= ov5642_s_power,
-	.g_chip_ident	= ov5642_g_chip_ident,
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 	.g_register	= ov5642_get_register,
 	.s_register	= ov5642_set_register,
@@ -5636,6 +5637,70 @@ static struct v4l2_subdev_ops ov5642_subdev_ops = {
 	.core	= &ov5642_subdev_core_ops,
 	.video	= &ov5642_subdev_video_ops,
 };
+
+/* OF probe functions */
+static int ov5642_hw_power(struct device *dev, int on)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ov5642 *priv = to_ov5642(client);
+
+	dev_dbg(&client->dev, "%s: %s the camera\n",
+			__func__, on ? "ENABLE" : "DISABLE");
+
+	if (priv->pwdn_gpio)
+		gpiod_direction_output(priv->pwdn_gpio, !on);
+
+	/* We need wait for ~1ms, then access the SCCB */
+	if (on)
+		usleep_range(1000, 2000);
+
+	return 0;
+}
+
+static int ov5642_hw_reset(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ov5642 *priv = to_ov5642(client);
+
+	if (priv->resetb_gpio) {
+		/* Active the resetb pin to perform a reset pulse */
+		gpiod_direction_output(priv->resetb_gpio, 1);
+		usleep_range(1000, 3000);
+		gpiod_direction_output(priv->resetb_gpio, 0);
+	}
+
+	/* We need wait for ~20ms, then access the SCCB */
+	usleep_range(20000, 21000);
+
+	return 0;
+}
+
+static int ov5642_probe_dt(struct i2c_client *client,
+		struct ov5642 *priv)
+{
+	/* Request the reset GPIO deasserted */
+	priv->resetb_gpio = devm_gpiod_get_optional(&client->dev, "resetb",
+			GPIOD_OUT_LOW);
+	if (!priv->resetb_gpio)
+		dev_dbg(&client->dev, "resetb gpio is not assigned!\n");
+	else if (IS_ERR(priv->resetb_gpio))
+		return PTR_ERR(priv->resetb_gpio);
+
+	/* Request the power down GPIO asserted */
+	priv->pwdn_gpio = devm_gpiod_get_optional(&client->dev, "pwdn",
+			GPIOD_OUT_HIGH);
+	if (!priv->pwdn_gpio)
+		dev_dbg(&client->dev, "pwdn gpio is not assigned!\n");
+	else if (IS_ERR(priv->pwdn_gpio))
+		return PTR_ERR(priv->pwdn_gpio);
+
+	/* Initialize the soc_camera_subdev_desc */
+	priv->ssdd_dt.power = ov5642_hw_power;
+	priv->ssdd_dt.reset = ov5642_hw_reset;
+	client->dev.platform_data = &priv->ssdd_dt;
+
+	return 0;
+}
 
 static int ov5642_video_probe(struct i2c_client *client)
 {
@@ -5686,15 +5751,33 @@ static int ov5642_probe(struct i2c_client *client,
 {
 	struct ov5642 *priv;
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
-
-	if (!ssdd) {
-		dev_err(&client->dev, "OV5642: missing platform data!\n");
-		return -EINVAL;
-	}
+	int ret;
 
 	priv = devm_kzalloc(&client->dev, sizeof(struct ov5642), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
+
+	priv->clk = v4l2_clk_get(&client->dev, "mclk");
+	if (IS_ERR(priv->clk))
+		return -EPROBE_DEFER;
+
+	if (!ssdd && !client->dev.of_node) {
+		dev_err(&client->dev, "OV5642: missing platform data!\n");
+		ret = -EINVAL;
+		goto err_clk;
+	}
+
+	if (!ssdd) {
+		ret = ov5642_probe_dt(client, priv);
+		if (ret)
+			goto err_clk;
+	}
+
+	priv->xvclk = devm_clk_get(&client->dev, "xvclk");
+	if (IS_ERR(priv->xvclk)) {
+		ret = PTR_ERR(priv->xvclk);
+		goto err_clk;
+	}
 
 	v4l2_i2c_subdev_init(&priv->subdev, client, &ov5642_subdev_ops);
 
@@ -5707,13 +5790,28 @@ static int ov5642_probe(struct i2c_client *client,
 	priv->total_width = OV5642_DEFAULT_WIDTH + BLANKING_EXTRA_WIDTH;
 	priv->total_height = BLANKING_MIN_HEIGHT;
 
-	return ov5642_video_probe(client);
+	ret = ov5642_video_probe(client);
+	if (ret < 0)
+		goto err_clk;
+
+	ret = v4l2_async_register_subdev(&priv->subdev);
+	if (ret < 0)
+		goto err_clk;
+
+	return 0;
+
+err_clk:
+	v4l2_clk_put(priv->clk);
+	return ret;
 }
 
 static int ov5642_remove(struct i2c_client *client)
 {
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
+	struct ov5642 *priv = to_ov5642(client);
 
+	v4l2_async_unregister_subdev(&priv->subdev);
+	v4l2_clk_put(priv->clk);
 	if (ssdd->free_bus)
 		ssdd->free_bus(ssdd);
 
@@ -5726,9 +5824,16 @@ static const struct i2c_device_id ov5642_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, ov5642_id);
 
+static const struct of_device_id ov5642_of_match[] = {
+	{.compatible = "ovti,ov5642", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, ov5642_of_match);
+
 static struct i2c_driver ov5642_i2c_driver = {
 	.driver = {
 		.name = "ov5642",
+		.of_match_table = of_match_ptr(ov5642_of_match),
 	},
 	.probe		= ov5642_probe,
 	.remove		= ov5642_remove,

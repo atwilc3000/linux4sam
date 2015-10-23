@@ -10,14 +10,18 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/clk.h>
 #include <linux/init.h>
+#include <linux/delay.h>
+#include <linux/gpio.h>
 #include <linux/module.h>
 #include <linux/i2c.h>
+#include <linux/of_gpio.h>
 #include <linux/slab.h>
 #include <linux/v4l2-mediabus.h>
 
 #include <media/soc_camera.h>
-#include <media/v4l2-chip-ident.h>
+#include <media/v4l2-clk.h>
 #include <media/v4l2-ctrls.h>
 
 #define to_ov9740(sd)		container_of(sd, struct ov9740_priv, subdev)
@@ -199,8 +203,9 @@ struct ov9740_reg {
 struct ov9740_priv {
 	struct v4l2_subdev		subdev;
 	struct v4l2_ctrl_handler	hdl;
+	struct v4l2_clk			*clk;
+	struct clk			*xvclk;
 
-	int				ident;
 	u16				model;
 	u8				revision;
 	u8				manid;
@@ -212,6 +217,10 @@ struct ov9740_priv {
 	/* For suspend/resume. */
 	struct v4l2_mbus_framefmt	current_mf;
 	bool				current_enable;
+
+	struct soc_camera_subdev_desc	ssdd_dt;
+	struct gpio_desc *resetb_gpio;
+	struct gpio_desc *pwdn_gpio;
 };
 
 static const struct ov9740_reg ov9740_defaults[] = {
@@ -413,8 +422,8 @@ static const struct ov9740_reg ov9740_sxga_setting[] = {
 	{OV9740_MODE_SELECT,		0x01},
 };
 
-static enum v4l2_mbus_pixelcode ov9740_codes[] = {
-	V4L2_MBUS_FMT_YUYV8_2X8,
+static u32 ov9740_codes[] = {
+	MEDIA_BUS_FMT_YUYV8_2X8,
 };
 
 /* read a register */
@@ -587,13 +596,13 @@ static int ov9740_s_fmt(struct v4l2_subdev *sd,
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct ov9740_priv *priv = to_ov9740(sd);
 	enum v4l2_colorspace cspace;
-	enum v4l2_mbus_pixelcode code = mf->code;
+	u32 code = mf->code;
 	int ret;
 
 	ov9740_res_roundup(&mf->width, &mf->height);
 
 	switch (code) {
-	case V4L2_MBUS_FMT_YUYV8_2X8:
+	case MEDIA_BUS_FMT_YUYV8_2X8:
 		cspace = V4L2_COLORSPACE_SRGB;
 		break;
 	default:
@@ -629,7 +638,7 @@ static int ov9740_try_fmt(struct v4l2_subdev *sd,
 	ov9740_res_roundup(&mf->width, &mf->height);
 
 	mf->field = V4L2_FIELD_NONE;
-	mf->code = V4L2_MBUS_FMT_YUYV8_2X8;
+	mf->code = MEDIA_BUS_FMT_YUYV8_2X8;
 	mf->colorspace = V4L2_COLORSPACE_SRGB;
 
 	return 0;
@@ -658,7 +667,7 @@ static int ov9740_g_fmt(struct v4l2_subdev *sd,
 
 
 static int ov9740_enum_fmt(struct v4l2_subdev *sd, unsigned int index,
-			   enum v4l2_mbus_pixelcode *code)
+			   u32 *code)
 {
 	if (index >= ARRAY_SIZE(ov9740_codes))
 		return -EINVAL;
@@ -713,18 +722,6 @@ static int ov9740_s_ctrl(struct v4l2_ctrl *ctrl)
 	return 0;
 }
 
-/* Get chip identification */
-static int ov9740_g_chip_ident(struct v4l2_subdev *sd,
-			       struct v4l2_dbg_chip_ident *id)
-{
-	struct ov9740_priv *priv = to_ov9740(sd);
-
-	id->ident = priv->ident;
-	id->revision = priv->revision;
-
-	return 0;
-}
-
 static int ov9740_s_power(struct v4l2_subdev *sd, int on)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -733,7 +730,9 @@ static int ov9740_s_power(struct v4l2_subdev *sd, int on)
 	int ret;
 
 	if (on) {
-		ret = soc_camera_power_on(&client->dev, ssdd);
+		clk_prepare_enable(priv->xvclk);
+
+		ret = soc_camera_power_on(&client->dev, ssdd, priv->clk);
 		if (ret < 0)
 			return ret;
 
@@ -747,7 +746,9 @@ static int ov9740_s_power(struct v4l2_subdev *sd, int on)
 			priv->current_enable = true;
 		}
 
-		soc_camera_power_off(&client->dev, ssdd);
+		soc_camera_power_off(&client->dev, ssdd, priv->clk);
+
+		clk_disable_unprepare(priv->xvclk);
 	}
 
 	return 0;
@@ -828,8 +829,6 @@ static int ov9740_video_probe(struct i2c_client *client)
 		goto done;
 	}
 
-	priv->ident = V4L2_IDENT_OV9740;
-
 	dev_info(&client->dev, "ov9740 Model ID 0x%04x, Revision 0x%02x, "
 		 "Manufacturer 0x%02x, SMIA Version 0x%02x\n",
 		 priv->model, priv->revision, priv->manid, priv->smiaver);
@@ -869,7 +868,6 @@ static struct v4l2_subdev_video_ops ov9740_video_ops = {
 };
 
 static struct v4l2_subdev_core_ops ov9740_core_ops = {
-	.g_chip_ident		= ov9740_g_chip_ident,
 	.s_power		= ov9740_s_power,
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 	.g_register		= ov9740_get_register,
@@ -886,6 +884,71 @@ static const struct v4l2_ctrl_ops ov9740_ctrl_ops = {
 	.s_ctrl = ov9740_s_ctrl,
 };
 
+/* OF probe functions */
+static int ov9740_hw_power(struct device *dev, int on)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct ov9740_priv *priv = to_ov9740(sd);
+
+	dev_dbg(&client->dev, "%s: %s the camera\n",
+			__func__, on ? "ENABLE" : "DISABLE");
+
+	if (priv->pwdn_gpio)
+		gpiod_direction_output(priv->pwdn_gpio, !on);
+
+	/* We need wait for ~1ms, then access the SCCB */
+	if (on)
+		usleep_range(1000, 2000);
+
+	return 0;
+}
+
+static int ov9740_hw_reset(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct ov9740_priv *priv = to_ov9740(sd);
+
+	if (priv->resetb_gpio) {
+		/* Active the resetb pin to perform a reset pulse */
+		gpiod_direction_output(priv->resetb_gpio, 1);
+		usleep_range(1000, 3000);
+		gpiod_direction_output(priv->resetb_gpio, 0);
+	}
+
+	usleep_range(1000, 2000);
+
+	return 0;
+}
+
+static int ov9740_probe_dt(struct i2c_client *client,
+		struct ov9740_priv *priv)
+{
+	/* Request the reset GPIO deasserted */
+	priv->resetb_gpio = devm_gpiod_get_optional(&client->dev, "resetb",
+			GPIOD_OUT_LOW);
+	if (!priv->resetb_gpio)
+		dev_dbg(&client->dev, "resetb gpio is not assigned!\n");
+	else if (IS_ERR(priv->resetb_gpio))
+		return PTR_ERR(priv->resetb_gpio);
+
+	/* Request the power down GPIO asserted */
+	priv->pwdn_gpio = devm_gpiod_get_optional(&client->dev, "pwdn",
+			GPIOD_OUT_HIGH);
+	if (!priv->pwdn_gpio)
+		dev_dbg(&client->dev, "pwdn gpio is not assigned!\n");
+	else if (IS_ERR(priv->pwdn_gpio))
+		return PTR_ERR(priv->pwdn_gpio);
+
+	/* Initialize the soc_camera_subdev_desc */
+	priv->ssdd_dt.power = ov9740_hw_power;
+	priv->ssdd_dt.reset = ov9740_hw_reset;
+	client->dev.platform_data = &priv->ssdd_dt;
+
+	return 0;
+}
+
 /*
  * i2c_driver function
  */
@@ -896,15 +959,33 @@ static int ov9740_probe(struct i2c_client *client,
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
 	int ret;
 
-	if (!ssdd) {
-		dev_err(&client->dev, "Missing platform_data for driver\n");
-		return -EINVAL;
-	}
-
 	priv = devm_kzalloc(&client->dev, sizeof(struct ov9740_priv), GFP_KERNEL);
 	if (!priv) {
 		dev_err(&client->dev, "Failed to allocate private data!\n");
 		return -ENOMEM;
+	}
+
+	priv->clk = v4l2_clk_get(&client->dev, "mclk");
+	if (IS_ERR(priv->clk)) {
+		return -EPROBE_DEFER;
+	}
+
+	if (!ssdd && !client->dev.of_node) {
+		dev_err(&client->dev, "Missing platform_data for driver\n");
+		ret = -EINVAL;
+		goto err_clk;
+	}
+
+	if (!ssdd) {
+		ret = ov9740_probe_dt(client, priv);
+		if (ret)
+			goto err_clk;
+	}
+
+	priv->xvclk = devm_clk_get(&client->dev, "xvclk");
+	if (IS_ERR(priv->xvclk)) {
+		ret = PTR_ERR(priv->xvclk);
+		goto err_clk;
 	}
 
 	v4l2_i2c_subdev_init(&priv->subdev, client, &ov9740_subdev_ops);
@@ -914,12 +995,25 @@ static int ov9740_probe(struct i2c_client *client,
 	v4l2_ctrl_new_std(&priv->hdl, &ov9740_ctrl_ops,
 			V4L2_CID_HFLIP, 0, 1, 1, 1);
 	priv->subdev.ctrl_handler = &priv->hdl;
-	if (priv->hdl.error)
-		return priv->hdl.error;
+	if (priv->hdl.error) {
+		ret = priv->hdl.error;
+		goto err_clk;
+	}
 
 	ret = ov9740_video_probe(client);
 	if (ret < 0)
-		v4l2_ctrl_handler_free(&priv->hdl);
+		goto err_handler;
+
+	ret = v4l2_async_register_subdev(&priv->subdev);
+	if (ret < 0)
+		goto err_handler;
+
+	return 0;
+
+err_handler:
+	v4l2_ctrl_handler_free(&priv->hdl);
+err_clk:
+	v4l2_clk_put(priv->clk);
 
 	return ret;
 }
@@ -928,6 +1022,8 @@ static int ov9740_remove(struct i2c_client *client)
 {
 	struct ov9740_priv *priv = i2c_get_clientdata(client);
 
+	v4l2_async_unregister_subdev(&priv->subdev);
+	v4l2_clk_put(priv->clk);
 	v4l2_device_unregister_subdev(&priv->subdev);
 	v4l2_ctrl_handler_free(&priv->hdl);
 	return 0;
@@ -939,9 +1035,16 @@ static const struct i2c_device_id ov9740_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, ov9740_id);
 
+static const struct of_device_id ov9740_of_match[] = {
+	{.compatible = "ovti,ov9740", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, ov9740_of_match);
+
 static struct i2c_driver ov9740_i2c_driver = {
 	.driver = {
 		.name = "ov9740",
+		.of_match_table = of_match_ptr(ov9740_of_match),
 	},
 	.probe    = ov9740_probe,
 	.remove   = ov9740_remove,

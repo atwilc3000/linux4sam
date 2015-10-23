@@ -122,6 +122,7 @@ static int vdec_misc_open(struct inode *inode, struct file *filp)
 	filp->private_data = p;
 
 	dev_dbg(p->dev, "open\n");
+	clk_prepare_enable(p->clk);
 	return 0;
 }
 
@@ -143,6 +144,7 @@ static int vdec_misc_release(struct inode *inode, struct file *filp)
 		p->pp_owner = NULL;
 	}
 
+	clk_disable_unprepare(p->clk);
 	dev_dbg(p->dev, "release\n");
 	return 0;
 }
@@ -402,7 +404,12 @@ static int __init vdec_probe(struct platform_device *pdev)
 	sema_init(&p->dec_sem, VDEC_MAX_CORES);
 	sema_init(&p->pp_sem, 1);
 
-	clk_enable(p->clk);
+	ret = clk_prepare_enable(p->clk);
+	if (ret) {
+		dev_err(&pdev->dev, "unable to prepare and enable clock\n");
+		misc_deregister(&vdec_misc_device);
+		return ret;
+	}
 
 	dev_info(&pdev->dev, "VDEC controller at 0x%p, irq = %d, misc_minor = %d\n",
 			p->mmio_base, p->irq, vdec_misc_device.minor);
@@ -412,6 +419,8 @@ static int __init vdec_probe(struct platform_device *pdev)
 	vdec_writel(p, VDEC_PPIR, VDEC_PPIR_ID);
 
 	hwid = vdec_readl(p, VDEC_IDR);
+	clk_disable_unprepare(p->clk);
+
 	dev_warn(&pdev->dev, "Product ID: %#x (revision %d.%d.%d)\n", \
 			(hwid & VDEC_IDR_PROD_ID) >> 16,
 			(hwid & VDEC_IDR_MAJOR_VER) >> 12,
@@ -427,29 +436,6 @@ static int __exit vdec_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM
-static int vdec_suspend(struct platform_device *pdev, pm_message_t mesg)
-{
-	struct vdec_device *p = vdec6731_global;
-
-	clk_disable(p->clk);
-
-	return 0;
-}
-
-static int vdec_resume(struct platform_device *pdev)
-{
-	struct vdec_device *p = vdec6731_global;
-
-	clk_enable(p->clk);
-
-	return 0;
-}
-#else
-#define	vdec_suspend	NULL
-#define	vdec_resume	NULL
-#endif
-
 static const struct of_device_id vdec_of_match[] = {
 	{ .compatible = "on2,g1", .data = NULL },
 	{},
@@ -462,8 +448,6 @@ static struct platform_driver vdec_of_driver = {
 		.owner	= THIS_MODULE,
 		.of_match_table	= vdec_of_match,
 	},
-	.suspend	= vdec_suspend,
-	.resume		= vdec_resume,
 	.remove		= vdec_remove,
 };
 

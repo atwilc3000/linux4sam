@@ -84,12 +84,14 @@
 #define		ISI_CFG2_RGB_CFG_MODE_3		(3 << 30)
 
 /* Bitfields in PSIZE */
-#define ISI_PSIZE_PREV_VSIZE_OFFSET		0
-#define ISI_PSIZE_PREV_HSIZE_OFFSET		16
+#define ISI_PSIZE_PREV_VSIZE_OFFSET	0
+#define ISI_PSIZE_PREV_HSIZE_OFFSET	16
 #define ISI_PSIZE_PREV_VSIZE_MASK	(0x3FF << ISI_PSIZE_PREV_VSIZE_OFFSET)
 #define ISI_PSIZE_PREV_HSIZE_MASK	(0x3FF << ISI_PSIZE_PREV_HSIZE_OFFSET)
 
+/* Bitfields in PDECF */
 #define ISI_PDECF_DEC_FACTOR_MASK	(0xFF << 0)
+#define 	ISI_PDECF_NO_SAMPLING		(16)
 
 /* Bitfields in CTRL */
 /* Also using in SR(ISI_V2) */
@@ -124,6 +126,8 @@
 #define ISI_DATAWIDTH_8				0x01
 #define ISI_DATAWIDTH_10			0x02
 
+struct v4l2_async_subdev;
+
 struct isi_platform_data {
 	u8 has_emb_sync;
 	u8 emb_crc_sync;
@@ -136,6 +140,8 @@ struct isi_platform_data {
 	u32 frate;
 	/* Using for ISI_MCK */
 	u32 mck_hz;
+	struct v4l2_async_subdev **asd;	/* Flat array, arranged in groups */
+	int *asd_sizes;		/* 0-terminated array of asd group sizes */
 };
 
 #endif /* __ATMEL_ISI_H__ */

@@ -20,12 +20,13 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <linux/pinctrl/consumer.h>
+#include <linux/pm_runtime.h>
 #include <linux/slab.h>
 
 #include <media/atmel-isi.h>
 #include <media/soc_camera.h>
 #include <media/soc_mediabus.h>
+#include <media/v4l2-of.h>
 #include <media/videobuf2-dma-contig.h>
 
 #define MAX_BUFFER_NUM			32
@@ -37,30 +38,45 @@
 #define MIN_FRAME_RATE			15
 #define FRAME_INTERVAL_MILLI_SEC	(1000 / MIN_FRAME_RATE)
 
+/* Debug helper functions */
 #define pixfmtstr(x) (x) & 0xff, ((x) >> 8) & 0xff, ((x) >> 16) & 0xff, \
 	((x) >> 24) & 0xff
 
-static const struct soc_mbus_pixelfmt isi_camera_formats[];
-
-char *mbus_fmt_string(enum v4l2_mbus_pixelcode code)
+static char *mbus_fmt_string(u32 code)
 {
 	switch (code) {
-	case V4L2_MBUS_FMT_Y8_1X8:
-		return "V4L2_MBUS_FMT_Y8_1X8";
-	case V4L2_MBUS_FMT_UYVY8_2X8:
-		return "V4L2_MBUS_FMT_UYVY8_2X8";
-	case V4L2_MBUS_FMT_VYUY8_2X8:
-		return "V4L2_MBUS_FMT_VYUY8_2X8";
-	case V4L2_MBUS_FMT_YUYV8_2X8:
-		return "V4L2_MBUS_FMT_YUYV8_2X8";
-	case V4L2_MBUS_FMT_YVYU8_2X8:
-		return "V4L2_MBUS_FMT_YVYU8_2X8";
-	case V4L2_MBUS_FMT_RGB565_2X8_LE:
-		return "V4L2_MBUS_FMT_RGB565_2X8_LE";
-	case V4L2_MBUS_FMT_RGB565_2X8_BE:
-		return "V4L2_MBUS_FMT_RGB565_2X8_BE";
+	case MEDIA_BUS_FMT_Y8_1X8:
+		return "MEDIA_BUS_FMT_Y8_1X8";
+	case MEDIA_BUS_FMT_Y10_1X10:
+		return "MEDIA_BUS_FMT_Y10_1X10";
+	case MEDIA_BUS_FMT_Y12_1X12:
+		return "MEDIA_BUS_FMT_Y12_1X12";
+	case MEDIA_BUS_FMT_SGRBG8_1X8:
+		return "MEDIA_BUS_FMT_SGRBG8_1X8";
+	case MEDIA_BUS_FMT_SGRBG10_1X10:
+		return "MEDIA_BUS_FMT_SGRBG10_1X10";
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
+		return "MEDIA_BUS_FMT_SGRBG12_1X12";
+	case MEDIA_BUS_FMT_SBGGR8_1X8:
+		return "MEDIA_BUS_FMT_SBGGR8_1X8";
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
+		return "MEDIA_BUS_FMT_SBGGR10_1X10";
+	case MEDIA_BUS_FMT_SBGGR12_1X12:
+		return "MEDIA_BUS_FMT_SBGGR12_1X12";
+	case MEDIA_BUS_FMT_UYVY8_2X8:
+		return "MEDIA_BUS_FMT_UYVY8_2X8";
+	case MEDIA_BUS_FMT_VYUY8_2X8:
+		return "MEDIA_BUS_FMT_VYUY8_2X8";
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+		return "MEDIA_BUS_FMT_YUYV8_2X8";
+	case MEDIA_BUS_FMT_YVYU8_2X8:
+		return "MEDIA_BUS_FMT_YVYU8_2X8";
+	case MEDIA_BUS_FMT_RGB565_2X8_LE:
+		return "MEDIA_BUS_FMT_RGB565_2X8_LE";
+	case MEDIA_BUS_FMT_RGB565_2X8_BE:
+		return "MEDIA_BUS_FMT_RGB565_2X8_BE";
 	default:
-		return "Unkown_v4l2_mbus_pixel_fmt";
+		return "Unkown MEDIA_BUS_FMT";
 	}
 }
 
@@ -82,7 +98,7 @@ static void set_dma_ctrl(struct fbd *fb_desc, u32 ctrl)
 struct isi_dma_desc {
 	struct list_head list;
 	struct fbd *p_fbd;
-	u32 fbd_phys;
+	dma_addr_t fbd_phys;
 };
 
 /* Frame buffer data */
@@ -103,25 +119,24 @@ struct atmel_isi {
 
 	/* Allocate descriptors for dma buffer use */
 	struct fbd			*p_fb_descriptors;
-	u32				fb_descriptors_phys;
+	dma_addr_t			fb_descriptors_phys;
 	struct				list_head dma_desc_head;
 	struct isi_dma_desc		dma_desc[MAX_BUFFER_NUM];
 	bool				enable_preview_path;
+	u32				sensor_orig_width;
+	u32				sensor_orig_height;
 
 	struct completion		complete;
 	/* ISI peripherial clock */
 	struct clk			*pclk;
-	/* ISI_MCK, feed to camera sensor to generate pixel clock */
-	struct clk			*mck;
 	unsigned int			irq;
 
-	struct isi_platform_data	*pdata;
+	struct isi_platform_data	pdata;
 	u16				width_flags;	/* max 12 bits */
 
 	struct list_head		video_buffer_list;
 	struct frame_buffer		*active;
 
-	struct soc_camera_device	*icd;
 	struct soc_camera_host		soc_host;
 };
 
@@ -134,139 +149,145 @@ static u32 isi_readl(struct atmel_isi *isi, u32 reg)
 	return readl(isi->regs + reg);
 }
 
-static u32 setup_yuv_swap(struct atmel_isi *isi,
+static u32 setup_cfg2_yuv_swap(struct atmel_isi *isi,
 	const struct soc_camera_format_xlate *xlate)
 {
-	if (isi->enable_preview_path) {
+	/* By default, no swap for the codec path of Atmel ISI. So codec
+	 * ouput is same as sensor's output.
+	 * For instance, if sensor's output is YUYV, then codec outputs YUYV.
+	 * And if sensor's ouput is UYVY, then codec outputs UYVY.
+	 */
+	u32 cfg2_yuv_swap = ISI_CFG2_YCC_SWAP_DEFAULT;
+
+	if (xlate->host_fmt->fourcc == V4L2_PIX_FMT_YUYV) {
+		/* all convert to YUYV */
 		switch (xlate->code) {
-		/* Set YUV format for isi to convert into RGB format */
-		case V4L2_MBUS_FMT_UYVY8_2X8:
-			return ISI_CFG2_YCC_SWAP_DEFAULT;
-		case V4L2_MBUS_FMT_VYUY8_2X8:
-			return ISI_CFG2_YCC_SWAP_MODE_1;
-		case V4L2_MBUS_FMT_YUYV8_2X8:
-			return ISI_CFG2_YCC_SWAP_MODE_2;
-		case V4L2_MBUS_FMT_YVYU8_2X8:
-			return ISI_CFG2_YCC_SWAP_MODE_3;
-		default:
+		case MEDIA_BUS_FMT_VYUY8_2X8:
+			cfg2_yuv_swap = ISI_CFG2_YCC_SWAP_MODE_3;
+			break;
+		case MEDIA_BUS_FMT_UYVY8_2X8:
+			cfg2_yuv_swap = ISI_CFG2_YCC_SWAP_MODE_2;
+			break;
+		case MEDIA_BUS_FMT_YVYU8_2X8:
+			cfg2_yuv_swap = ISI_CFG2_YCC_SWAP_MODE_1;
 			break;
 		}
-	} else {
-		if (xlate->host_fmt == &isi_camera_formats[0]) {
-			/* all convert to YUYV */
-			switch (xlate->code) {
-			case V4L2_MBUS_FMT_VYUY8_2X8:
-				return ISI_CFG2_YCC_SWAP_MODE_3;
-			case V4L2_MBUS_FMT_UYVY8_2X8:
-				return ISI_CFG2_YCC_SWAP_MODE_2;
-			case V4L2_MBUS_FMT_YVYU8_2X8:
-				return ISI_CFG2_YCC_SWAP_MODE_1;
-			case V4L2_MBUS_FMT_YUYV8_2X8:
-				return ISI_CFG2_YCC_SWAP_DEFAULT;
-			default:
-				break;
-			}
-		} else {
-			/* same format and without swap */
-			switch (xlate->code) {
-			case V4L2_MBUS_FMT_UYVY8_2X8:
-			case V4L2_MBUS_FMT_VYUY8_2X8:
-			case V4L2_MBUS_FMT_YUYV8_2X8:
-			case V4L2_MBUS_FMT_YVYU8_2X8:
-				/* No swap for the codec path. Codec output is
-				 * same as sensor's output. For instance, if
-				 * sensor's output is YUYV, then codec output
-				 * in memory is YUYV.
-				 */
-				return ISI_CFG2_YCC_SWAP_DEFAULT;
-			default:
-				break;
-			}
+	} else if (xlate->host_fmt->fourcc == V4L2_PIX_FMT_RGB565) {
+		/* Preview path is enabled, it will convert UYVY to RGB format.
+		 * But if sensor output format is not UYVY, we need to set
+		 * YCC_SWAP_MODE to convert it as UYVY.
+		 */
+		switch (xlate->code) {
+		case MEDIA_BUS_FMT_VYUY8_2X8:
+			cfg2_yuv_swap = ISI_CFG2_YCC_SWAP_MODE_1;
+			break;
+		case MEDIA_BUS_FMT_YUYV8_2X8:
+			cfg2_yuv_swap = ISI_CFG2_YCC_SWAP_MODE_2;
+			break;
+		case MEDIA_BUS_FMT_YVYU8_2X8:
+			cfg2_yuv_swap = ISI_CFG2_YCC_SWAP_MODE_3;
+			break;
 		}
 	}
 
-	dev_err(isi->icd->parent, "Error: not support format for YCC_SWAP: %s\n",
-		mbus_fmt_string(xlate->code));
-	return 0;
+	return cfg2_yuv_swap;
 }
 
-static bool is_output_rgb565(const struct soc_camera_format_xlate *xlate)
+static int configure_geometry(struct atmel_isi *isi, u32 width, u32 height,
+		const struct soc_camera_format_xlate *xlate)
 {
-	return xlate->host_fmt->fourcc == V4L2_PIX_FMT_RGB565;
-}
-
-static int configure_geometry(struct atmel_isi *isi, u32 width,
-			u32 height, const struct soc_camera_format_xlate *xlate,
-			u32 preview_width, u32 preview_height)
-{
-	u32 cfg2;
-	u32 factor = min(width * 16 / preview_width,
-			height * 16 / preview_height);
-
-	/*
-	 * Check the output format, if it's RGB565 then use preview channel,
-	 * otherwise use codec channel.
-	 */ 
-	switch (xlate->host_fmt->fourcc) {
-	case V4L2_PIX_FMT_GREY:
-	case V4L2_PIX_FMT_RGB565:
-	case V4L2_PIX_FMT_YUYV:
-	case V4L2_PIX_FMT_UYVY:
-	case V4L2_PIX_FMT_YVYU:
-	case V4L2_PIX_FMT_VYUY:
-		isi->enable_preview_path = is_output_rgb565(xlate);
-		break;
-	default:
-		dev_err(isi->icd->parent, "not support output memory v4l2 format: %d\n",
-			xlate->host_fmt->fourcc);
-		return -EINVAL;
-	}
+	u32 cfg2, psize;
+	u32 factor = min(isi->sensor_orig_width * 16 / width,
+			isi->sensor_orig_height * 16 / height);
 
 	/* According to sensor's output format to set cfg2 */
 	switch (xlate->code) {
 	/* Grey */
-	case V4L2_MBUS_FMT_Y8_1X8:
+	case MEDIA_BUS_FMT_Y8_1X8:
+	case MEDIA_BUS_FMT_Y10_1X10:
+	case MEDIA_BUS_FMT_Y12_1X12:
+	/* Bayer RGB */
+	case MEDIA_BUS_FMT_SGRBG8_1X8:
+	case MEDIA_BUS_FMT_SGRBG10_1X10:
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
+	case MEDIA_BUS_FMT_SBGGR8_1X8:
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
+	case MEDIA_BUS_FMT_SBGGR12_1X12:
 		cfg2 = ISI_CFG2_GRAYSCALE;
 		break;
 	/* YUV */
- 	case V4L2_MBUS_FMT_UYVY8_2X8:
- 	case V4L2_MBUS_FMT_VYUY8_2X8:
- 	case V4L2_MBUS_FMT_YUYV8_2X8:
- 	case V4L2_MBUS_FMT_YVYU8_2X8:
-		cfg2 = setup_yuv_swap(isi, xlate);
- 		break;
+	case MEDIA_BUS_FMT_VYUY8_2X8:
+	case MEDIA_BUS_FMT_UYVY8_2X8:
+	case MEDIA_BUS_FMT_YVYU8_2X8:
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+		cfg2 = setup_cfg2_yuv_swap(isi, xlate);
+		break;
 	/* RGB */
-	case V4L2_MBUS_FMT_RGB565_2X8_LE:
+	case MEDIA_BUS_FMT_RGB565_2X8_LE:
 		cfg2 = ISI_CFG2_COL_SPACE_RGB | ISI_CFG2_RGB_MODE_565 |
-			ISI_CFG2_RGB_CFG_MODE_3;
+			ISI_CFG2_RGB_CFG_DEFAULT;
 		break;
 	default:
 		return -EINVAL;
 	}
-	dev_dbg(isi->icd->parent, "%s path is enabled with sensor format: %s\n",
-			isi->enable_preview_path ? "Preview" : "Codec",
-			mbus_fmt_string(xlate->code));
 
 	isi_writel(isi, ISI_CTRL, ISI_CTRL_DIS);
 	/* Set width */
-	cfg2 |= ((width - 1) << ISI_CFG2_IM_HSIZE_OFFSET) &
+	cfg2 |= ((isi->sensor_orig_width - 1) << ISI_CFG2_IM_HSIZE_OFFSET) &
 			ISI_CFG2_IM_HSIZE_MASK;
 	/* Set height */
-	cfg2 |= ((height - 1) << ISI_CFG2_IM_VSIZE_OFFSET)
+	cfg2 |= ((isi->sensor_orig_height - 1) << ISI_CFG2_IM_VSIZE_OFFSET)
 			& ISI_CFG2_IM_VSIZE_MASK;
 	isi_writel(isi, ISI_CFG2, cfg2);
 
-	cfg2 = ((preview_width - 1) << ISI_PSIZE_PREV_HSIZE_OFFSET) &
+	psize = ((width - 1) << ISI_PSIZE_PREV_HSIZE_OFFSET) &
 		ISI_PSIZE_PREV_HSIZE_MASK;
-	cfg2 |= ((preview_height - 1) << ISI_PSIZE_PREV_VSIZE_OFFSET)
-		& ISI_PSIZE_PREV_VSIZE_MASK;
-	isi_writel(isi, ISI_PSIZE, cfg2);
+	psize |= ((height -1) << ISI_PSIZE_PREV_VSIZE_OFFSET) &
+		ISI_PSIZE_PREV_VSIZE_MASK;
+	isi_writel(isi, ISI_PSIZE, psize);
 	isi_writel(isi, ISI_PDECF, factor & ISI_PDECF_DEC_FACTOR_MASK);
-	if (isi->enable_preview_path && factor > 16)
-		dev_dbg(isi->icd->parent, "Down sampling is enabled, defactor is: %d\n",
-			factor);
 
 	return 0;
+}
+
+static bool is_supported(struct soc_camera_device *icd,
+		const struct soc_mbus_pixelfmt *host_fmt)
+{
+	bool ret = true;
+
+	switch (host_fmt->fourcc) {
+	/* YUV */
+	case V4L2_PIX_FMT_YUYV:
+	case V4L2_PIX_FMT_UYVY:
+	case V4L2_PIX_FMT_YVYU:
+	case V4L2_PIX_FMT_VYUY:
+	/* GREY */
+	case V4L2_PIX_FMT_GREY:
+	case V4L2_PIX_FMT_Y10:
+	case V4L2_PIX_FMT_Y12:
+	/* Bayer RGB */
+	case V4L2_PIX_FMT_SGRBG8:
+	case V4L2_PIX_FMT_SGRBG10:
+	case V4L2_PIX_FMT_SGRBG12:
+	case V4L2_PIX_FMT_SBGGR8:
+	case V4L2_PIX_FMT_SBGGR10:
+	case V4L2_PIX_FMT_SBGGR12:
+	/* RGB */
+	case V4L2_PIX_FMT_RGB565:
+		break;
+	default:
+		dev_err(icd->parent, "not support output memory v4l2 format: %c%c%c%c\n",
+					pixfmtstr(host_fmt->fourcc));
+		ret = false;
+	}
+
+	return ret;
+}
+
+static bool is_output_rgb(const struct soc_mbus_pixelfmt *host_fmt)
+{
+       return host_fmt->fourcc == V4L2_PIX_FMT_RGB565 ||
+	       host_fmt->fourcc == V4L2_PIX_FMT_RGB32;
 }
 
 static irqreturn_t atmel_isi_handle_streaming(struct atmel_isi *isi)
@@ -289,13 +310,13 @@ static irqreturn_t atmel_isi_handle_streaming(struct atmel_isi *isi)
 					struct frame_buffer, list);
 		if (!isi->enable_preview_path) {
 			isi_writel(isi, ISI_DMA_C_DSCR,
-				isi->active->p_dma_desc->fbd_phys);
+				(u32)isi->active->p_dma_desc->fbd_phys);
 			isi_writel(isi, ISI_DMA_C_CTRL,
 				ISI_DMA_CTRL_FETCH | ISI_DMA_CTRL_DONE);
 			isi_writel(isi, ISI_DMA_CHER, ISI_DMA_CHSR_C_CH);
 		} else {
 			isi_writel(isi, ISI_DMA_P_DSCR,
-				isi->active->p_dma_desc->fbd_phys);
+				(u32)isi->active->p_dma_desc->fbd_phys);
 			isi_writel(isi, ISI_DMA_P_CTRL,
 				ISI_DMA_CTRL_FETCH | ISI_DMA_CTRL_DONE);
 			isi_writel(isi, ISI_DMA_CHER, ISI_DMA_CHSR_P_CH);
@@ -355,7 +376,7 @@ static int atmel_isi_wait_status(struct atmel_isi *isi, int wait_reset)
 	}
 
 	timeout = wait_for_completion_timeout(&isi->complete,
-			msecs_to_jiffies(100));
+			msecs_to_jiffies(500));
 	if (timeout == 0)
 		return -ETIMEDOUT;
 
@@ -471,18 +492,16 @@ static void start_dma(struct atmel_isi *isi, struct frame_buffer *buffer)
 	/* Check if already in a frame */
 	if (!isi->enable_preview_path) {
 		if (isi_readl(isi, ISI_STATUS) & ISI_CTRL_CDC) {
-			dev_err(isi->icd->parent, "Already in frame handling.\n");
+			dev_err(isi->soc_host.icd->parent, "Already in frame handling.\n");
 			return;
 		}
-	}
 
-	if (!isi->enable_preview_path) {
-		isi_writel(isi, ISI_DMA_C_DSCR, buffer->p_dma_desc->fbd_phys);
+		isi_writel(isi, ISI_DMA_C_DSCR, (u32)buffer->p_dma_desc->fbd_phys);
 		isi_writel(isi, ISI_DMA_C_CTRL,
 				ISI_DMA_CTRL_FETCH | ISI_DMA_CTRL_DONE);
 		isi_writel(isi, ISI_DMA_CHER, ISI_DMA_CHSR_C_CH);
 	} else {
-		isi_writel(isi, ISI_DMA_P_DSCR, buffer->p_dma_desc->fbd_phys);
+		isi_writel(isi, ISI_DMA_P_DSCR, (u32)buffer->p_dma_desc->fbd_phys);
 		isi_writel(isi, ISI_DMA_P_CTRL,
 				ISI_DMA_CTRL_FETCH | ISI_DMA_CTRL_DONE);
 		isi_writel(isi, ISI_DMA_CHER, ISI_DMA_CHSR_P_CH);
@@ -490,12 +509,11 @@ static void start_dma(struct atmel_isi *isi, struct frame_buffer *buffer)
 
 	cfg1 &= ~ISI_CFG1_FRATE_DIV_MASK;
 	/* Enable linked list */
-	cfg1 |= isi->pdata->frate | ISI_CFG1_DISCR;
+	cfg1 |= isi->pdata.frate | ISI_CFG1_DISCR;
 
 	/* Enable ISI */
 	ctrl = ISI_CTRL_EN;
 
-	/* TODO: we need check the platform data FULL field first */
 	if (!isi->enable_preview_path)
 		ctrl |= ISI_CTRL_CDC;
 
@@ -527,21 +545,30 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct soc_camera_device *icd = soc_camera_from_vb2q(vq);
 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
 	struct atmel_isi *isi = ici->priv;
-	u32 sr = 0;
 	int ret;
+
+	isi->enable_preview_path = is_output_rgb(icd->current_fmt->host_fmt);
+
+	pm_runtime_get_sync(ici->v4l2_dev.dev);
 
 	/* Reset ISI */
 	ret = atmel_isi_wait_status(isi, WAIT_ISI_RESET);
 	if (ret < 0) {
 		dev_err(icd->parent, "Reset ISI timed out\n");
+		pm_runtime_put(ici->v4l2_dev.dev);
 		return ret;
 	}
 	/* Disable all interrupts */
-	isi_writel(isi, ISI_INTDIS, ~0UL);
+	isi_writel(isi, ISI_INTDIS, (u32)~0UL);
+
+	ret = configure_geometry(isi, icd->user_width, icd->user_height,
+				icd->current_fmt);
+	if (ret < 0)
+		return ret;
 
 	spin_lock_irq(&isi->lock);
 	/* Clear any pending interrupt */
-	sr = isi_readl(isi, ISI_STATUS);
+	isi_readl(isi, ISI_STATUS);
 
 	if (count)
 		start_dma(isi, isi->active);
@@ -551,7 +578,7 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 }
 
 /* abort streaming and wait for last buffer */
-static int stop_streaming(struct vb2_queue *vq)
+static void stop_streaming(struct vb2_queue *vq)
 {
 	struct soc_camera_device *icd = soc_camera_from_vb2q(vq);
 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
@@ -576,11 +603,9 @@ static int stop_streaming(struct vb2_queue *vq)
 				time_before(jiffies, timeout))
 			msleep(1);
 
-		if (time_after(jiffies, timeout)) {
+		if (time_after(jiffies, timeout))
 			dev_err(icd->parent,
 				"Timeout waiting for finishing codec request\n");
-			return -ETIMEDOUT;
-		}
 	}
 
 	/* Disable interrupts */
@@ -592,7 +617,7 @@ static int stop_streaming(struct vb2_queue *vq)
 	if (ret < 0)
 		dev_err(icd->parent, "Disable ISI timed out\n");
 
-	return ret;
+	pm_runtime_put(ici->v4l2_dev.dev);
 }
 
 static struct vb2_ops isi_video_qops = {
@@ -619,7 +644,7 @@ static int isi_camera_init_videobuf(struct vb2_queue *q,
 	q->buf_struct_size = sizeof(struct frame_buffer);
 	q->ops = &isi_video_qops;
 	q->mem_ops = &vb2_dma_contig_memops;
-	q->timestamp_type = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
 
 	return vb2_queue_init(q);
 }
@@ -627,9 +652,9 @@ static int isi_camera_init_videobuf(struct vb2_queue *q,
 static int isi_camera_set_fmt(struct soc_camera_device *icd,
 			      struct v4l2_format *f)
 {
+	struct v4l2_subdev *sd = soc_camera_to_subdev(icd);
 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
 	struct atmel_isi *isi = ici->priv;
-	struct v4l2_subdev *sd = soc_camera_to_subdev(icd);
 	const struct soc_camera_format_xlate *xlate;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	struct v4l2_mbus_framefmt mf;
@@ -637,13 +662,17 @@ static int isi_camera_set_fmt(struct soc_camera_device *icd,
 
 	xlate = soc_camera_xlate_by_fourcc(icd, pix->pixelformat);
 	if (!xlate) {
-		dev_warn(icd->parent, "Format %x not found\n",
-			 pix->pixelformat);
+		dev_warn(icd->parent, "set_fmt: Format %c%c%c%c(%x) not found\n",
+			 pixfmtstr(pix->pixelformat), pix->pixelformat);
 		return -EINVAL;
 	}
 
-	dev_dbg(icd->parent, "Plan to set format %dx%d, %c%c%c%c\n",
-			pix->width, pix->height, pixfmtstr(pix->pixelformat));
+	/* check with atmel-isi support this host format */
+	if (!is_supported(icd, xlate->host_fmt))
+		return -EINVAL;
+
+	dev_dbg(icd->parent, "Plan to set resolution: %dx%d, sensor format: %s, isi output format: %c%c%c%c\n",
+			pix->width, pix->height, mbus_fmt_string(xlate->code), pixfmtstr(xlate->host_fmt->fourcc));
 
 	mf.width	= pix->width;
 	mf.height	= pix->height;
@@ -658,24 +687,25 @@ static int isi_camera_set_fmt(struct soc_camera_device *icd,
 	if (mf.code != xlate->code)
 		return -EINVAL;
 
-	ret = configure_geometry(isi, mf.width, mf.height, xlate,
-					pix->width, pix->height);
-	if (ret < 0)
-		return ret;
+	/* record original sensor size for preview path to do down sampling */
+	isi->sensor_orig_width = mf.width;
+	isi->sensor_orig_height = mf.height;
 
-	if (!is_output_rgb565(xlate) ||
-		(pix->width > mf.width || pix->height > mf.height)) {
-		/* Use the sensor output size, no down scaling */
-		pix->width		= mf.width;
-		pix->height		= mf.height;
+	if (!is_output_rgb(xlate->host_fmt) ||
+			(pix->width > mf.width || pix->height > mf.height)) {
+		pix->width	= mf.width;
+		pix->height	= mf.height;
 	}
 
 	pix->field		= mf.field;
 	pix->colorspace		= mf.colorspace;
 	icd->current_fmt	= xlate;
 
-	dev_dbg(icd->parent, "Finally set format %dx%d, %c%c%c%c\n",
-		pix->width, pix->height, pixfmtstr(pix->pixelformat));
+	dev_dbg(icd->parent, "Finally output resolution: %dx%d, sensor output resolution: %dx%d, isi output format: %c%c%c%c, sensor output format: %s\n",
+		pix->width, pix->height,
+		mf.width, mf.height,
+		pixfmtstr(xlate->host_fmt->fourcc),
+		mbus_fmt_string(mf.code));
 
 	return ret;
 }
@@ -688,27 +718,20 @@ static int isi_camera_try_fmt(struct soc_camera_device *icd,
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	struct v4l2_mbus_framefmt mf;
 	u32 pixfmt = pix->pixelformat;
-	int max_width = MAX_SUPPORT_WIDTH;
-	int max_height = MAX_SUPPORT_HEIGHT;
 	int ret;
 
 	xlate = soc_camera_xlate_by_fourcc(icd, pixfmt);
 	if (pixfmt && !xlate) {
-		dev_warn(icd->parent, "Format %x not found\n", pixfmt);
+		dev_warn(icd->parent, "try_fmt: Format %c%c%c%c(%x) not found\n",
+			 pixfmtstr(pixfmt), pixfmt);
 		return -EINVAL;
 	}
 
-	/* Preview channel support max size is VGA */
-	if (is_output_rgb565(xlate)) {
-		max_width = MAX_PREVIEW_SUPPORT_WIDTH;
-		max_height = MAX_PREVIEW_SUPPORT_HEIGHT;
-	}
-
 	/* limit to Atmel ISI hardware capabilities */
-	if (pix->height > max_height)
-		pix->height = max_height;
-	if (pix->width > max_width)
-		pix->width = max_width;
+	if (pix->height > MAX_SUPPORT_HEIGHT)
+		pix->height = MAX_SUPPORT_HEIGHT;
+	if (pix->width > MAX_SUPPORT_WIDTH)
+		pix->width = MAX_SUPPORT_WIDTH;
 
 	/* limit to sensor capabilities */
 	mf.width	= pix->width;
@@ -721,12 +744,24 @@ static int isi_camera_try_fmt(struct soc_camera_device *icd,
 	if (ret < 0)
 		return ret;
 
-	if (!is_output_rgb565(xlate) ||
-		(pix->width > mf.width || pix->height > mf.height)) {
-		/* Use the sensor output size, no down scaling */
-		pix->width		= mf.width;
-		pix->height		= mf.height;
+	/*
+	 * In following cases, we use sensor output size:
+	 *   1. Not in preview path
+	 *   2. In preview path, pix->width/height > sensor's width/height
+	 * otherwise, we can keep pix-width/height for down sampling.
+	 */
+	if (!is_output_rgb(xlate->host_fmt) ||
+			(pix->width > mf.width || pix->height > mf.height)) {
+		pix->width	= mf.width;
+		pix->height	= mf.height;
 	}
+
+	/* for preview path, the max height & width is VGA. */
+	if (is_output_rgb(xlate->host_fmt)) {
+		pix->width = min((u32)MAX_PREVIEW_SUPPORT_WIDTH, pix->width);
+		pix->height = min((u32)MAX_PREVIEW_SUPPORT_HEIGHT, pix->height);
+	}
+
 	pix->colorspace	= mf.colorspace;
 
 	switch (mf.field) {
@@ -747,6 +782,26 @@ static int isi_camera_try_fmt(struct soc_camera_device *icd,
 static const struct soc_mbus_pixelfmt isi_camera_formats[] = {
 	{
 		.fourcc			= V4L2_PIX_FMT_YUYV,
+		.name			= "Packed YUV422 16 bit",
+		.bits_per_sample	= 8,
+		.packing		= SOC_MBUS_PACKING_2X8_PADHI,
+		.order			= SOC_MBUS_ORDER_LE,
+		.layout			= SOC_MBUS_LAYOUT_PACKED,
+	},
+	{
+		.fourcc			= V4L2_PIX_FMT_RGB565,
+		.name			= "RGB565",
+		.bits_per_sample	= 8,
+		.packing		= SOC_MBUS_PACKING_2X8_PADHI,
+		.order			= SOC_MBUS_ORDER_LE,
+		.layout			= SOC_MBUS_LAYOUT_PACKED,
+	},
+};
+
+/* When sensor output RGB565, ISI can get following formats */
+static const struct soc_mbus_pixelfmt isi_camera_formats_rgb[] = {
+	{
+		.fourcc			= V4L2_PIX_FMT_UYVY,
 		.name			= "Packed YUV422 16 bit",
 		.bits_per_sample	= 8,
 		.packing		= SOC_MBUS_PACKING_2X8_PADHI,
@@ -817,9 +872,9 @@ static int isi_camera_get_formats(struct soc_camera_device *icd,
 				  struct soc_camera_format_xlate *xlate)
 {
 	struct v4l2_subdev *sd = soc_camera_to_subdev(icd);
-	int formats = 0, ret;
+	int formats = 0, ret, i, n;
 	/* sensor format */
-	enum v4l2_mbus_pixelcode code;
+	u32 code;
 	/* soc camera host format */
 	const struct soc_mbus_pixelfmt *fmt;
 
@@ -831,8 +886,7 @@ static int isi_camera_get_formats(struct soc_camera_device *icd,
 	fmt = soc_mbus_get_fmtdesc(code);
 	if (!fmt) {
 		dev_err(icd->parent,
-			"Invalid format code #%u: %s\n", idx,
-				mbus_fmt_string(code));
+			"Invalid format code #%u: %s\n", idx, mbus_fmt_string(code));
 		return 0;
 	}
 
@@ -845,24 +899,33 @@ static int isi_camera_get_formats(struct soc_camera_device *icd,
 	}
 
 	switch (code) {
-	case V4L2_MBUS_FMT_UYVY8_2X8:
-	case V4L2_MBUS_FMT_VYUY8_2X8:
-	case V4L2_MBUS_FMT_YUYV8_2X8:
-	case V4L2_MBUS_FMT_YVYU8_2X8:
-		formats++;
-		if (xlate) {
-			xlate->host_fmt	= &isi_camera_formats[0];
-			xlate->code	= code;
-			dev_dbg(icd->parent, "Providing format %s using code %s\n",
-				xlate->host_fmt->name, mbus_fmt_string(code));
-			xlate++;
-
-			/* Can convert to RGB565 via preview path */
-			xlate->host_fmt	= &isi_camera_formats[1];
-			xlate->code	= code;
-			dev_dbg(icd->parent, "Providing format %s using code %s\n",
-				xlate->host_fmt->name, mbus_fmt_string(code));
-			xlate++;
+	case MEDIA_BUS_FMT_UYVY8_2X8:
+	case MEDIA_BUS_FMT_VYUY8_2X8:
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+	case MEDIA_BUS_FMT_YVYU8_2X8:
+		n = ARRAY_SIZE(isi_camera_formats);
+		formats += n;
+		for (i = 0; i < n; i++) {
+			if (xlate) {
+				xlate->host_fmt	= &isi_camera_formats[i];
+				xlate->code	= code;
+				dev_dbg(icd->parent, "Providing format %s (%s) when sensor output YUV\n",
+					xlate->host_fmt->name, mbus_fmt_string(xlate->code));
+				xlate++;
+			}
+		}
+		break;
+	case MEDIA_BUS_FMT_RGB565_2X8_LE:
+		n = ARRAY_SIZE(isi_camera_formats_rgb);
+		formats += n;
+		for (i = 0; i < n; i++) {
+			if (xlate) {
+				xlate->host_fmt	= &isi_camera_formats_rgb[i];
+				xlate->code	= code;
+				dev_dbg(icd->parent, "Providing format %s (%s) when sensor output RGB565\n",
+					xlate->host_fmt->name, mbus_fmt_string(xlate->code));
+				xlate++;
+			}
 		}
 		break;
 	default:
@@ -875,51 +938,24 @@ static int isi_camera_get_formats(struct soc_camera_device *icd,
 	if (xlate) {
 		xlate->host_fmt	= fmt;
 		xlate->code	= code;
-		dev_dbg(icd->parent, "Providing format %s using code %s\n",
-				xlate->host_fmt->name, mbus_fmt_string(code));
+		dev_dbg(icd->parent, "Providing format %s (%s) in pass-through mode\n",
+				xlate->host_fmt->name, mbus_fmt_string(xlate->code));
 		xlate++;
 	}
 
 	return formats;
 }
 
-/* Called with .host_lock held */
 static int isi_camera_add_device(struct soc_camera_device *icd)
 {
-	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
-	struct atmel_isi *isi = ici->priv;
-	int ret;
-
-	if (isi->icd)
-		return -EBUSY;
-
-	ret = clk_enable(isi->pclk);
-	if (ret)
-		return ret;
-
-	ret = clk_enable(isi->mck);
-	if (ret) {
-		clk_disable(isi->pclk);
-		return ret;
-	}
-
-	isi->icd = icd;
 	dev_dbg(icd->parent, "Atmel ISI Camera driver attached to camera %d\n",
 		 icd->devnum);
+
 	return 0;
 }
-/* Called with .host_lock held */
+
 static void isi_camera_remove_device(struct soc_camera_device *icd)
 {
-	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
-	struct atmel_isi *isi = ici->priv;
-
-	BUG_ON(icd != isi->icd);
-
-	clk_disable(isi->mck);
-	clk_disable(isi->pclk);
-	isi->icd = NULL;
-
 	dev_dbg(icd->parent, "Atmel ISI Camera driver detached from camera %d\n",
 		 icd->devnum);
 }
@@ -972,7 +1008,7 @@ static int isi_camera_set_bus_param(struct soc_camera_device *icd)
 	/* Make choises, based on platform preferences */
 	if ((common_flags & V4L2_MBUS_HSYNC_ACTIVE_HIGH) &&
 	    (common_flags & V4L2_MBUS_HSYNC_ACTIVE_LOW)) {
-		if (isi->pdata->hsync_act_low)
+		if (isi->pdata.hsync_act_low)
 			common_flags &= ~V4L2_MBUS_HSYNC_ACTIVE_HIGH;
 		else
 			common_flags &= ~V4L2_MBUS_HSYNC_ACTIVE_LOW;
@@ -980,7 +1016,7 @@ static int isi_camera_set_bus_param(struct soc_camera_device *icd)
 
 	if ((common_flags & V4L2_MBUS_VSYNC_ACTIVE_HIGH) &&
 	    (common_flags & V4L2_MBUS_VSYNC_ACTIVE_LOW)) {
-		if (isi->pdata->vsync_act_low)
+		if (isi->pdata.vsync_act_low)
 			common_flags &= ~V4L2_MBUS_VSYNC_ACTIVE_HIGH;
 		else
 			common_flags &= ~V4L2_MBUS_VSYNC_ACTIVE_LOW;
@@ -988,7 +1024,7 @@ static int isi_camera_set_bus_param(struct soc_camera_device *icd)
 
 	if ((common_flags & V4L2_MBUS_PCLK_SAMPLE_RISING) &&
 	    (common_flags & V4L2_MBUS_PCLK_SAMPLE_FALLING)) {
-		if (isi->pdata->pclk_act_falling)
+		if (isi->pdata.pclk_act_falling)
 			common_flags &= ~V4L2_MBUS_PCLK_SAMPLE_RISING;
 		else
 			common_flags &= ~V4L2_MBUS_PCLK_SAMPLE_FALLING;
@@ -1010,15 +1046,20 @@ static int isi_camera_set_bus_param(struct soc_camera_device *icd)
 	if (common_flags & V4L2_MBUS_PCLK_SAMPLE_FALLING)
 		cfg1 |= ISI_CFG1_PIXCLK_POL_ACTIVE_FALLING;
 
-	if (isi->pdata->has_emb_sync)
+	if (isi->pdata.has_emb_sync)
 		cfg1 |= ISI_CFG1_EMB_SYNC;
-	if (isi->pdata->full_mode)
+	if (isi->pdata.full_mode)
 		cfg1 |= ISI_CFG1_FULL_MODE;
 
 	cfg1 |= ISI_CFG1_THMASK_BEATS_16;
 
+	/* Enable PM and peripheral clock before operate isi registers */
+	pm_runtime_get_sync(ici->v4l2_dev.dev);
+
 	isi_writel(isi, ISI_CTRL, ISI_CTRL_DIS);
 	isi_writel(isi, ISI_CFG1, cfg1);
+
+	pm_runtime_put(ici->v4l2_dev.dev);
 
 	return 0;
 }
@@ -1056,11 +1097,53 @@ static int atmel_isi_remove(struct platform_device *pdev)
 			sizeof(struct fbd) * MAX_BUFFER_NUM,
 			isi->p_fb_descriptors,
 			isi->fb_descriptors_phys);
-
-	clk_unprepare(isi->mck);
-	clk_unprepare(isi->pclk);
+	pm_runtime_disable(&pdev->dev);
 
 	return 0;
+}
+
+static int atmel_isi_probe_dt(struct atmel_isi *isi,
+			struct platform_device *pdev)
+{
+	struct device_node *np= pdev->dev.of_node;
+	struct v4l2_of_endpoint ep;
+	int err;
+
+	/* Default settings for ISI */
+	isi->pdata.full_mode = 1;
+	isi->pdata.frate = ISI_CFG1_FRATE_CAPTURE_ALL;
+
+	np = of_graph_get_next_endpoint(np, NULL);
+	if (!np) {
+		dev_err(&pdev->dev, "Could not find the endpoint\n");
+		return -EINVAL;
+	}
+
+	err = v4l2_of_parse_endpoint(np, &ep);
+	if (err) {
+		dev_err(&pdev->dev, "Could not parse the endpoint\n");
+		goto err_probe_dt;
+	}
+
+	switch (ep.bus.parallel.bus_width) {
+	case 8:
+		isi->pdata.data_width_flags = ISI_DATAWIDTH_8;
+		break;
+	case 10:
+		isi->pdata.data_width_flags =
+				ISI_DATAWIDTH_8 | ISI_DATAWIDTH_10;
+		break;
+	default:
+		dev_err(&pdev->dev, "Unsupported bus width: %d\n",
+				ep.bus.parallel.bus_width);
+		err = -EINVAL;
+		goto err_probe_dt;
+	}
+
+err_probe_dt:
+	of_node_put(np);
+
+	return err;
 }
 
 static int atmel_isi_probe(struct platform_device *pdev)
@@ -1072,19 +1155,12 @@ static int atmel_isi_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct soc_camera_host *soc_host;
 	struct isi_platform_data *pdata;
-	struct pinctrl *pinctrl;
 
 	pdata = dev->platform_data;
-	if (!pdata || !pdata->data_width_flags || !pdata->mck_hz) {
+	if ((!pdata || !pdata->data_width_flags) && !pdev->dev.of_node) {
 		dev_err(&pdev->dev,
 			"No config available for Atmel ISI\n");
 		return -EINVAL;
-	}
-
-	pinctrl = devm_pinctrl_get_select_default(&pdev->dev);
-	if (IS_ERR(pinctrl)) {
-		dev_err(&pdev->dev, "Failed to request pinctrl\n");
-		return PTR_ERR(pinctrl);
 	}
 
 	isi = devm_kzalloc(&pdev->dev, sizeof(struct atmel_isi), GFP_KERNEL);
@@ -1097,41 +1173,26 @@ static int atmel_isi_probe(struct platform_device *pdev)
 	if (IS_ERR(isi->pclk))
 		return PTR_ERR(isi->pclk);
 
-	ret = clk_prepare(isi->pclk);
-	if (ret)
-		return ret;
+	if (pdata) {
+		memcpy(&isi->pdata, pdata, sizeof(isi->pdata));
+	} else {
+		ret = atmel_isi_probe_dt(isi, pdev);
+		if (ret)
+			return ret;
+	}
 
-	isi->pdata = pdata;
 	isi->active = NULL;
 	spin_lock_init(&isi->lock);
 	INIT_LIST_HEAD(&isi->video_buffer_list);
 	INIT_LIST_HEAD(&isi->dma_desc_head);
-
-	/* Get ISI_MCK, provided by programmable clock or external clock */
-	isi->mck = devm_clk_get(dev, "isi_mck");
-	if (IS_ERR(isi->mck)) {
-		dev_err(dev, "Failed to get isi_mck\n");
-		ret = PTR_ERR(isi->mck);
-		goto err_clk_get_mck;
-	}
-
-	ret = clk_prepare(isi->mck);
-	if (ret)
-		goto err_clk_prepare_mck;
-
-	/* Set ISI_MCK's frequency, it should be faster than pixel clock */
-	ret = clk_set_rate(isi->mck, pdata->mck_hz);
-	if (ret < 0)
-		goto err_set_mck_rate;
 
 	isi->p_fb_descriptors = dma_alloc_coherent(&pdev->dev,
 				sizeof(struct fbd) * MAX_BUFFER_NUM,
 				&isi->fb_descriptors_phys,
 				GFP_KERNEL);
 	if (!isi->p_fb_descriptors) {
-		ret = -ENOMEM;
 		dev_err(&pdev->dev, "Can't allocate descriptors!\n");
-		goto err_alloc_descriptors;
+		return -ENOMEM;
 	}
 
 	for (i = 0; i < MAX_BUFFER_NUM; i++) {
@@ -1154,12 +1215,10 @@ static int atmel_isi_probe(struct platform_device *pdev)
 		goto err_ioremap;
 	}
 
-	if (pdata->data_width_flags & ISI_DATAWIDTH_8)
+	if (isi->pdata.data_width_flags & ISI_DATAWIDTH_8)
 		isi->width_flags = 1 << 7;
-	if (pdata->data_width_flags & ISI_DATAWIDTH_10)
+	if (isi->pdata.data_width_flags & ISI_DATAWIDTH_10)
 		isi->width_flags |= 1 << 9;
-
-	isi_writel(isi, ISI_CTRL, ISI_CTRL_DIS);
 
 	irq = platform_get_irq(pdev, 0);
 	if (IS_ERR_VALUE(irq)) {
@@ -1181,6 +1240,14 @@ static int atmel_isi_probe(struct platform_device *pdev)
 	soc_host->v4l2_dev.dev	= &pdev->dev;
 	soc_host->nr		= pdev->id;
 
+	pm_suspend_ignore_children(&pdev->dev, true);
+	pm_runtime_enable(&pdev->dev);
+
+	if (isi->pdata.asd_sizes) {
+		soc_host->asd = isi->pdata.asd;
+		soc_host->asd_sizes = isi->pdata.asd_sizes;
+	}
+
 	ret = soc_camera_host_register(soc_host);
 	if (ret) {
 		dev_err(&pdev->dev, "Unable to register soc camera host\n");
@@ -1189,6 +1256,7 @@ static int atmel_isi_probe(struct platform_device *pdev)
 	return 0;
 
 err_register_soc_camera_host:
+	pm_runtime_disable(&pdev->dev);
 err_req_irq:
 err_ioremap:
 	vb2_dma_contig_cleanup_ctx(isi->alloc_ctx);
@@ -1197,21 +1265,47 @@ err_alloc_ctx:
 			sizeof(struct fbd) * MAX_BUFFER_NUM,
 			isi->p_fb_descriptors,
 			isi->fb_descriptors_phys);
-err_alloc_descriptors:
-err_set_mck_rate:
-	clk_unprepare(isi->mck);
-err_clk_prepare_mck:
-err_clk_get_mck:
-	clk_unprepare(isi->pclk);
 
 	return ret;
 }
+
+static int atmel_isi_runtime_suspend(struct device *dev)
+{
+	struct soc_camera_host *soc_host = to_soc_camera_host(dev);
+	struct atmel_isi *isi = container_of(soc_host,
+					struct atmel_isi, soc_host);
+
+	clk_disable_unprepare(isi->pclk);
+
+	return 0;
+}
+static int atmel_isi_runtime_resume(struct device *dev)
+{
+	struct soc_camera_host *soc_host = to_soc_camera_host(dev);
+	struct atmel_isi *isi = container_of(soc_host,
+					struct atmel_isi, soc_host);
+
+	return clk_prepare_enable(isi->pclk);
+}
+
+static const struct dev_pm_ops atmel_isi_dev_pm_ops = {
+	SET_RUNTIME_PM_OPS(atmel_isi_runtime_suspend,
+				atmel_isi_runtime_resume, NULL)
+};
+
+static const struct of_device_id atmel_isi_of_match[] = {
+	{ .compatible = "atmel,at91sam9g45-isi" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, atmel_isi_of_match);
 
 static struct platform_driver atmel_isi_driver = {
 	.remove		= atmel_isi_remove,
 	.driver		= {
 		.name = "atmel_isi",
 		.owner = THIS_MODULE,
+		.of_match_table = of_match_ptr(atmel_isi_of_match),
+		.pm	= &atmel_isi_dev_pm_ops,
 	},
 };
 

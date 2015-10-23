@@ -8,6 +8,7 @@
  */
 /dts-v1/;
 #include "at91sam9g15.dtsi"
+#include "at91sam9x5dm.dtsi"
 #include "at91sam9x5ek.dtsi"
 
 / {
@@ -16,21 +17,30 @@
 
 	ahb {
 		apb {
-			lcd_bus@f8038000 {
+			mmc1: mmc@f000c000 {
+				/* mmc1 pins is conflicted with spi0 pins */
+				status = "disabled";
+			};
+
+			hlcdc: hlcdc@f8038000 {
 				status = "okay";
-
-				lcd@f8038000 {
-					status = "okay";
-				};
-
-				lcdovl1@f8038100 {
-					status = "okay";
-				};
-
-				lcdheo1@f8038280 {
-					status = "okay";
-				};
 			};
 		};
+	};
+
+	backlight: backlight {
+		status = "okay";
+	};
+
+	bl_reg: backlight_regulator {
+		status = "okay";
+	};
+
+	panel: panel {
+		status = "okay";
+	};
+
+	panel_reg: panel_regulator {
+		status = "okay";
 	};
 };

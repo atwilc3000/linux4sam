@@ -25,7 +25,6 @@
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
 #include <linux/slab.h>
@@ -246,7 +245,8 @@ static int qt1070_remove(struct i2c_client *client)
 #ifdef CONFIG_PM_SLEEP
 static int qt1070_suspend(struct device *dev)
 {
-	struct qt1070_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = to_i2c_client(dev);
+	struct qt1070_data *data = i2c_get_clientdata(client);
 
 	if (device_may_wakeup(dev))
 		enable_irq_wake(data->irq);
@@ -256,7 +256,8 @@ static int qt1070_suspend(struct device *dev)
 
 static int qt1070_resume(struct device *dev)
 {
-	struct qt1070_data *data = dev_get_drvdata(dev);
+	struct i2c_client *client = to_i2c_client(dev);
+	struct qt1070_data *data = i2c_get_clientdata(client);
 
 	if (device_may_wakeup(dev))
 		disable_irq_wake(data->irq);

@@ -35,8 +35,13 @@
 #define		NFC_CTRL_DISABLE	(1 << 1)
 
 #define ATMEL_HSMC_NFC_SR	0x08		/* NFC Status Register */
+#define		NFC_SR_BUSY		(1 << 8)
 #define		NFC_SR_XFR_DONE		(1 << 16)
 #define		NFC_SR_CMD_DONE		(1 << 17)
+#define		NFC_SR_DTOE		(1 << 20)
+#define		NFC_SR_UNDEF		(1 << 21)
+#define		NFC_SR_AWB		(1 << 22)
+#define		NFC_SR_ASE		(1 << 23)
 #define		NFC_SR_RB_EDGE		(1 << 24)
 
 #define ATMEL_HSMC_NFC_IER	0x0c
@@ -89,8 +94,8 @@
 #define nfc_cmd_addr1234_writel(cmd, addr1234, nfc_base) \
 	writel((addr1234), (cmd) + nfc_base)
 
-#define nfc_busy_cmd_regs_readl(nfc) \
-	readl_relaxed(nfc->busy_cmd_regs)
+#define nfc_cmd_readl(bitstatus, nfc_base) \
+	readl_relaxed((bitstatus) + nfc_base)
 
 #define NFC_TIME_OUT_MS		100
 #define	NFC_SRAM_BANK1_OFFSET	0x1200

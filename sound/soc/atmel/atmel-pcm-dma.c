@@ -50,7 +50,6 @@ static const struct snd_pcm_hardware atmel_pcm_dma_hardware = {
 				  SNDRV_PCM_INFO_INTERLEAVED |
 				  SNDRV_PCM_INFO_RESUME |
 				  SNDRV_PCM_INFO_PAUSE,
-	.formats		= SNDRV_PCM_FMTBIT_S16_LE,
 	.period_bytes_min	= 256,		/* lighting DMA overhead */
 	.period_bytes_max	= 2 * 0xffff,	/* if 2 bytes format */
 	.periods_min		= 8,
@@ -109,12 +108,13 @@ static int atmel_pcm_configure_dma(struct snd_pcm_substream *substream,
 	}
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		slave_config->dst_addr = (dma_addr_t)(ssc->phybase + SSC_THR);
-		slave_config->dst_maxburst = 1;
+		slave_config->dst_addr = ssc->phybase + SSC_THR;
 	} else {
-		slave_config->src_addr = (dma_addr_t)(ssc->phybase + SSC_RHR);
-		slave_config->src_maxburst = 1;
+		slave_config->src_addr = ssc->phybase + SSC_RHR;
 	}
+
+	slave_config->dst_maxburst = 1;
+	slave_config->src_maxburst = 1;
 
 	prtd->dma_intr_handler = atmel_pcm_dma_irq;
 

@@ -196,12 +196,12 @@ ipipe_setup_resizer(void *__iomem rsz_base, struct resizer_params *params)
 		rsz_set_rsz_regs(rsz_base, RSZ_B, params);
 }
 
-static u32 ipipe_get_color_pat(enum v4l2_mbus_pixelcode pix)
+static u32 ipipe_get_color_pat(u32 pix)
 {
 	switch (pix) {
-	case V4L2_MBUS_FMT_SGRBG10_ALAW8_1X8:
-	case V4L2_MBUS_FMT_SGRBG10_DPCM8_1X8:
-	case V4L2_MBUS_FMT_SGRBG12_1X12:
+	case MEDIA_BUS_FMT_SGRBG10_ALAW8_1X8:
+	case MEDIA_BUS_FMT_SGRBG10_DPCM8_1X8:
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
 		return ipipe_sgrbg_pattern;
 
 	default:
@@ -211,23 +211,23 @@ static u32 ipipe_get_color_pat(enum v4l2_mbus_pixelcode pix)
 
 static int ipipe_get_data_path(struct vpfe_ipipe_device *ipipe)
 {
-	enum v4l2_mbus_pixelcode temp_pix_fmt;
+	u32 temp_pix_fmt;
 
 	switch (ipipe->formats[IPIPE_PAD_SINK].code) {
-	case V4L2_MBUS_FMT_SBGGR8_1X8:
-	case V4L2_MBUS_FMT_SGRBG10_ALAW8_1X8:
-	case V4L2_MBUS_FMT_SGRBG10_DPCM8_1X8:
-	case V4L2_MBUS_FMT_SGRBG12_1X12:
-		temp_pix_fmt = V4L2_MBUS_FMT_SGRBG12_1X12;
+	case MEDIA_BUS_FMT_SBGGR8_1X8:
+	case MEDIA_BUS_FMT_SGRBG10_ALAW8_1X8:
+	case MEDIA_BUS_FMT_SGRBG10_DPCM8_1X8:
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
+		temp_pix_fmt = MEDIA_BUS_FMT_SGRBG12_1X12;
 		break;
 
 	default:
-		temp_pix_fmt = V4L2_MBUS_FMT_UYVY8_2X8;
+		temp_pix_fmt = MEDIA_BUS_FMT_UYVY8_2X8;
 	}
 
-	if (temp_pix_fmt == V4L2_MBUS_FMT_SGRBG12_1X12) {
+	if (temp_pix_fmt == MEDIA_BUS_FMT_SGRBG12_1X12) {
 		if (ipipe->formats[IPIPE_PAD_SOURCE].code ==
-			V4L2_MBUS_FMT_SGRBG12_1X12)
+			MEDIA_BUS_FMT_SGRBG12_1X12)
 			return IPIPE_RAW2RAW;
 		return IPIPE_RAW2YUV;
 	}
@@ -267,7 +267,7 @@ int config_ipipe_hw(struct vpfe_ipipe_device *ipipe)
 	}
 
 	ipipe_mode = get_ipipe_mode(ipipe);
-	if (ipipe < 0) {
+	if (ipipe_mode < 0) {
 		pr_err("Failed to get ipipe mode");
 		return -EINVAL;
 	}
@@ -791,7 +791,7 @@ ipipe_set_3d_lut_regs(void *__iomem base_addr, void *__iomem isp5_base_addr,
 
 	/* valied table */
 	tbl = lut_3d->table;
-	for (i = 0 ; i < VPFE_IPIPE_MAX_SIZE_3D_LUT; i++) {
+	for (i = 0; i < VPFE_IPIPE_MAX_SIZE_3D_LUT; i++) {
 		/* Each entry has 0-9 (B), 10-19 (G) and
 		20-29 R values */
 		val = tbl[i].b & D3_LUT_ENTRY_MASK;
@@ -899,7 +899,7 @@ ipipe_set_gbce_regs(void *__iomem base_addr, void *__iomem isp5_base_addr,
 	if (!gbce->table)
 		return;
 
-	for (count = 0; count < VPFE_IPIPE_MAX_SIZE_GBCE_LUT ; count += 2)
+	for (count = 0; count < VPFE_IPIPE_MAX_SIZE_GBCE_LUT; count += 2)
 		w_ip_table(isp5_base_addr, ((gbce->table[count + 1] & mask) <<
 		GBCE_ENTRY_SHIFT) | (gbce->table[count] & mask),
 		((count/2) << 2) + GBCE_TB_START_ADDR);

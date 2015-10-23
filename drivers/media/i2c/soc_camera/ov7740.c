@@ -11,17 +11,20 @@
  */
 
 #include <linux/init.h>
-#include <linux/module.h>
-#include <linux/i2c.h>
-#include <linux/slab.h>
+#include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/gpio.h>
+#include <linux/i2c.h>
+#include <linux/module.h>
+#include <linux/of_gpio.h>
+#include <linux/slab.h>
 #include <linux/v4l2-mediabus.h>
 #include <linux/videodev2.h>
 
 #include <media/soc_camera.h>
-#include <media/v4l2-chip-ident.h>
-#include <media/v4l2-subdev.h>
+#include <media/v4l2-clk.h>
 #include <media/v4l2-ctrls.h>
+#include <media/v4l2-subdev.h>
 
 #define VAL_SET(x, mask, rshift, lshift)  \
 		((((x) >> rshift) & mask) << lshift)
@@ -69,9 +72,14 @@ struct ov7740_win_size {
 struct ov7740_priv {
 	struct v4l2_subdev		subdev;
 	struct v4l2_ctrl_handler	hdl;
-	enum v4l2_mbus_pixelcode	cfmt_code;
+	u32				cfmt_code;
+	struct v4l2_clk			*clk;
+	struct clk			*xvclk;
 	const struct ov7740_win_size	*win;
-	int				model;
+
+	struct soc_camera_subdev_desc	ssdd_dt;
+	struct gpio_desc *resetb_gpio;
+	struct gpio_desc *pwdn_gpio;
 };
 
 /*
@@ -213,8 +221,8 @@ static const struct ov7740_win_size ov7740_supported_win_sizes[] = {
 	OV7740_SIZE("VGA", W_VGA, H_VGA, ov7740_vga_regs),
 };
 
-static enum v4l2_mbus_pixelcode ov7740_codes[] = {
-	V4L2_MBUS_FMT_YUYV8_2X8,
+static u32 ov7740_codes[] = {
+	MEDIA_BUS_FMT_YUYV8_2X8,
 };
 
 /*
@@ -307,18 +315,6 @@ static int ov7740_s_ctrl(struct v4l2_ctrl *ctrl)
 	return -EINVAL;
 }
 
-static int ov7740_g_chip_ident(struct v4l2_subdev *sd,
-			       struct v4l2_dbg_chip_ident *id)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	struct ov7740_priv *priv = to_ov7740(client);
-
-	id->ident    = priv->model;
-	id->revision = 0;
-
-	return 0;
-}
-
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 static int ov7740_g_register(struct v4l2_subdev *sd,
 			     struct v4l2_dbg_register *reg)
@@ -356,8 +352,14 @@ static int ov7740_s_power(struct v4l2_subdev *sd, int on)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
+	struct ov7740_priv *priv = to_ov7740(client);
 
-	return soc_camera_set_power(&client->dev, ssdd, on);
+	if (on)
+		clk_prepare_enable(priv->xvclk);
+	else
+		clk_disable_unprepare(priv->xvclk);
+
+	return soc_camera_set_power(&client->dev, ssdd, priv->clk, on);
 }
 
 /* Select the nearest higher resolution for capture */
@@ -380,7 +382,7 @@ static const struct ov7740_win_size *ov7740_select_win(u32 *width, u32 *height)
 }
 
 static int ov7740_set_params(struct i2c_client *client, u32 *width, u32 *height,
-			     enum v4l2_mbus_pixelcode code)
+			     u32 code)
 {
 	struct ov7740_priv       *priv = to_ov7740(client);
 	int ret;
@@ -392,7 +394,7 @@ static int ov7740_set_params(struct i2c_client *client, u32 *width, u32 *height,
 	priv->cfmt_code = 0;
 	switch (code) {
 	default:
-	case V4L2_MBUS_FMT_YUYV8_2X8:
+	case MEDIA_BUS_FMT_YUYV8_2X8:
 		dev_dbg(&client->dev, "%s: Selected cfmt YUYV (YUV422)", __func__);
 	}
 
@@ -428,7 +430,7 @@ static int ov7740_g_fmt(struct v4l2_subdev *sd,
 	if (!priv->win) {
 		u32 width = W_VGA, height = H_VGA;
 		priv->win = ov7740_select_win(&width, &height);
-		priv->cfmt_code = V4L2_MBUS_FMT_YUYV8_2X8;
+		priv->cfmt_code = MEDIA_BUS_FMT_YUYV8_2X8;
 	}
 
 	mf->width	= priv->win->width;
@@ -436,13 +438,13 @@ static int ov7740_g_fmt(struct v4l2_subdev *sd,
 	mf->code	= priv->cfmt_code;
 
 	switch (mf->code) {
-	case V4L2_MBUS_FMT_RGB565_2X8_BE:
-	case V4L2_MBUS_FMT_RGB565_2X8_LE:
+	case MEDIA_BUS_FMT_RGB565_2X8_BE:
+	case MEDIA_BUS_FMT_RGB565_2X8_LE:
 		mf->colorspace = V4L2_COLORSPACE_SRGB;
 		break;
 	default:
-	case V4L2_MBUS_FMT_YUYV8_2X8:
-	case V4L2_MBUS_FMT_UYVY8_2X8:
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+	case MEDIA_BUS_FMT_UYVY8_2X8:
 		mf->colorspace = V4L2_COLORSPACE_JPEG;
 	}
 	mf->field	= V4L2_FIELD_NONE;
@@ -458,14 +460,14 @@ static int ov7740_s_fmt(struct v4l2_subdev *sd,
 
 
 	switch (mf->code) {
-	case V4L2_MBUS_FMT_RGB565_2X8_BE:
-	case V4L2_MBUS_FMT_RGB565_2X8_LE:
+	case MEDIA_BUS_FMT_RGB565_2X8_BE:
+	case MEDIA_BUS_FMT_RGB565_2X8_LE:
 		mf->colorspace = V4L2_COLORSPACE_SRGB;
 		break;
 	default:
-		mf->code = V4L2_MBUS_FMT_YUYV8_2X8;
-	case V4L2_MBUS_FMT_YUYV8_2X8:
-	case V4L2_MBUS_FMT_UYVY8_2X8:
+		mf->code = MEDIA_BUS_FMT_YUYV8_2X8;
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+	case MEDIA_BUS_FMT_UYVY8_2X8:
 		mf->colorspace = V4L2_COLORSPACE_JPEG;
 	}
 
@@ -485,14 +487,14 @@ static int ov7740_try_fmt(struct v4l2_subdev *sd,
 	mf->field	= V4L2_FIELD_NONE;
 
 	switch (mf->code) {
-	case V4L2_MBUS_FMT_RGB565_2X8_BE:
-	case V4L2_MBUS_FMT_RGB565_2X8_LE:
+	case MEDIA_BUS_FMT_RGB565_2X8_BE:
+	case MEDIA_BUS_FMT_RGB565_2X8_LE:
 		mf->colorspace = V4L2_COLORSPACE_SRGB;
 		break;
 	default:
-		mf->code = V4L2_MBUS_FMT_UYVY8_2X8;
-	case V4L2_MBUS_FMT_YUYV8_2X8:
-	case V4L2_MBUS_FMT_UYVY8_2X8:
+		mf->code = MEDIA_BUS_FMT_UYVY8_2X8;
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+	case MEDIA_BUS_FMT_UYVY8_2X8:
 		mf->colorspace = V4L2_COLORSPACE_JPEG;
 	}
 
@@ -500,7 +502,7 @@ static int ov7740_try_fmt(struct v4l2_subdev *sd,
 }
 
 static int ov7740_enum_fmt(struct v4l2_subdev *sd, unsigned int index,
-			   enum v4l2_mbus_pixelcode *code)
+			   u32 *code)
 {
 	if (index >= ARRAY_SIZE(ov7740_codes))
 		return -EINVAL;
@@ -531,7 +533,6 @@ static int ov7740_video_probe(struct i2c_client *client)
 	switch (VERSION(pid, ver)) {
 	case PID_OV7740:
 		devname     = "ov7740";
-		priv->model = V4L2_IDENT_OV7740;
 		break;
 	default:
 		dev_err(&client->dev,
@@ -556,7 +557,6 @@ static const struct v4l2_ctrl_ops ov7740_ctrl_ops = {
 };
 
 static struct v4l2_subdev_core_ops ov7740_subdev_core_ops = {
-	.g_chip_ident	= ov7740_g_chip_ident,
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 	.g_register	= ov7740_g_register,
 	.s_register	= ov7740_s_register,
@@ -593,6 +593,70 @@ static struct v4l2_subdev_ops ov7740_subdev_ops = {
 	.video	= &ov7740_subdev_video_ops,
 };
 
+/* OF probe functions */
+static int ov7740_hw_power(struct device *dev, int on)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ov7740_priv *priv = to_ov7740(client);
+
+	dev_dbg(&client->dev, "%s: %s the camera\n",
+			__func__, on ? "ENABLE" : "DISABLE");
+
+	if (priv->pwdn_gpio)
+		gpiod_direction_output(priv->pwdn_gpio, !on);
+
+	/* We need wait for ~1ms, then access the SCCB */
+	if (on)
+		usleep_range(1000, 2000);
+
+	return 0;
+}
+
+static int ov7740_hw_reset(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct ov7740_priv *priv = to_ov7740(client);
+
+	if (priv->resetb_gpio) {
+		/* Active the resetb pin to perform a reset pulse */
+		gpiod_direction_output(priv->resetb_gpio, 1);
+		usleep_range(1000, 3000);
+		gpiod_direction_output(priv->resetb_gpio, 0);
+	}
+
+	/* We need wait for ~20ms, then access the SCCB */
+	usleep_range(20000, 21000);
+
+	return 0;
+}
+
+static int ov7740_probe_dt(struct i2c_client *client,
+		struct ov7740_priv *priv)
+{
+	/* Request the reset GPIO deasserted */
+	priv->resetb_gpio = devm_gpiod_get_optional(&client->dev, "resetb",
+			GPIOD_OUT_LOW);
+	if (!priv->resetb_gpio)
+		dev_dbg(&client->dev, "resetb gpio is not assigned!\n");
+	else if (IS_ERR(priv->resetb_gpio))
+		return PTR_ERR(priv->resetb_gpio);
+
+	/* Request the power down GPIO asserted */
+	priv->pwdn_gpio = devm_gpiod_get_optional(&client->dev, "pwdn",
+			GPIOD_OUT_HIGH);
+	if (!priv->pwdn_gpio)
+		dev_dbg(&client->dev, "pwdn gpio is not assigned!\n");
+	else if (IS_ERR(priv->pwdn_gpio))
+		return PTR_ERR(priv->pwdn_gpio);
+
+	/* Initialize the soc_camera_subdev_desc */
+	priv->ssdd_dt.power = ov7740_hw_power;
+	priv->ssdd_dt.reset = ov7740_hw_reset;
+	client->dev.platform_data = &priv->ssdd_dt;
+
+	return 0;
+}
+
 /*
  * i2c_driver functions
  */
@@ -603,12 +667,6 @@ static int ov7740_probe(struct i2c_client *client,
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
 	struct i2c_adapter	*adapter = to_i2c_adapter(client->dev.parent);
 	int			ret;
-
-	if (!ssdd) {
-		dev_err(&adapter->dev,
-			"OV7740: Missing platform_data for driver\n");
-		return -EINVAL;
-	}
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA)) {
 		dev_err(&adapter->dev,
@@ -623,6 +681,29 @@ static int ov7740_probe(struct i2c_client *client,
 		return -ENOMEM;
 	}
 
+	priv->clk = v4l2_clk_get(&client->dev, "mclk");
+	if (IS_ERR(priv->clk))
+		return -EPROBE_DEFER;
+
+	if (!ssdd && !client->dev.of_node) {
+		dev_err(&adapter->dev,
+			"OV7740: Missing platform_data for driver\n");
+		ret = -EINVAL;
+		goto err_clk;
+	}
+
+	if (!ssdd) {
+		ret = ov7740_probe_dt(client, priv);
+		if (ret)
+			goto err_clk;
+	}
+
+	priv->xvclk = devm_clk_get(&client->dev, "xvclk");
+	if (IS_ERR(priv->xvclk)) {
+		ret = PTR_ERR(priv->xvclk);
+		goto err_clk;
+	}
+
 	v4l2_i2c_subdev_init(&priv->subdev, client, &ov7740_subdev_ops);
 	v4l2_ctrl_handler_init(&priv->hdl, 2);
 	v4l2_ctrl_new_std(&priv->hdl, &ov7740_ctrl_ops,
@@ -630,15 +711,26 @@ static int ov7740_probe(struct i2c_client *client,
 	v4l2_ctrl_new_std(&priv->hdl, &ov7740_ctrl_ops,
 			V4L2_CID_HFLIP, 0, 1, 1, 0);
 	priv->subdev.ctrl_handler = &priv->hdl;
-	if (priv->hdl.error)
-		return priv->hdl.error;
+	if (priv->hdl.error) {
+		ret = priv->hdl.error;
+		goto err_clk;
+	}
 
 	ret = ov7740_video_probe(client);
 	if (ret)
-		v4l2_ctrl_handler_free(&priv->hdl);
-	else
-		dev_info(&adapter->dev, "OV7740 Probed\n");
+		goto err_handler;
 
+	ret = v4l2_async_register_subdev(&priv->subdev);
+	if (ret < 0)
+		goto err_handler;
+
+	dev_info(&adapter->dev, "OV7740 Probed\n");
+	return 0;
+
+err_handler:
+	v4l2_ctrl_handler_free(&priv->hdl);
+err_clk:
+	v4l2_clk_put(priv->clk);
 	return ret;
 }
 
@@ -646,6 +738,8 @@ static int ov7740_remove(struct i2c_client *client)
 {
 	struct ov7740_priv       *priv = to_ov7740(client);
 
+	v4l2_async_unregister_subdev(&priv->subdev);
+	v4l2_clk_put(priv->clk);
 	v4l2_device_unregister_subdev(&priv->subdev);
 	v4l2_ctrl_handler_free(&priv->hdl);
 	return 0;
@@ -657,9 +751,16 @@ static const struct i2c_device_id ov7740_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, ov7740_id);
 
+static const struct of_device_id ov7740_of_match[] = {
+	{.compatible = "ovti,ov7740", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, ov7740_of_match);
+
 static struct i2c_driver ov7740_i2c_driver = {
 	.driver = {
 		.name = "ov7740",
+		.of_match_table = of_match_ptr(ov7740_of_match),
 	},
 	.probe    = ov7740_probe,
 	.remove   = ov7740_remove,

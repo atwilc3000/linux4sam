@@ -23,6 +23,9 @@
 #define AT91_BASE_DBGU1	0xffffee00
 /* sama5d4 */
 #define AT91_BASE_DBGU2	0xfc069000
+/* sama5d2 */
+#define AT91_BASE_DBGU3		0xf8020000
+#define AT91_BASE_CHIPID	0xfc069000
 
 #include <mach/at91rm9200.h>
 #include <mach/at91sam9260.h>
@@ -32,6 +35,7 @@
 #include <mach/at91sam9g45.h>
 #include <mach/at91sam9x5.h>
 #include <mach/at91sam9n12.h>
+#include <mach/sama5d2.h>
 #include <mach/sama5d3.h>
 #include <mach/sama5d4.h>
 
@@ -86,6 +90,9 @@
  */
 #define AT91_IO_PHYS_BASE	AT91_BASE_SYS
 #define AT91_IO_VIRT_BASE	IOMEM(AT91_IO_PHYS_BASE)
+
+#define AT91_ALT_IO_PHYS_BASE	AT91_ALT_BASE_SYS
+#define AT91_ALT_IO_VIRT_BASE	IOMEM(AT91_ALT_BASE_SYS)
 #endif
 
 #define AT91_IO_SIZE		(0xFFFFFFFF - AT91_IO_PHYS_BASE + 1)
@@ -117,5 +124,20 @@
 /* Clocks */
 #define AT91_SLOW_CLOCK		32768		/* slow clock */
 
+/*
+ * FIXME: this is needed to communicate between the pinctrl driver and
+ * the PM implementation in the machine. Possibly part of the PM
+ * implementation should be moved down into the pinctrl driver and get
+ * called as part of the generic suspend/resume path.
+ */
+#ifndef __ASSEMBLY__
+#if defined(CONFIG_PINCTRL_AT91)
+extern void at91_pinctrl_gpio_suspend(void);
+extern void at91_pinctrl_gpio_resume(void);
+#else
+static void __maybe_unused at91_pinctrl_gpio_suspend(void) {}
+static void __maybe_unused at91_pinctrl_gpio_resume(void) {}
+#endif
+#endif
 
 #endif

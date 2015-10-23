@@ -1,5 +1,5 @@
 /*
- * at91-sama5d3_xplained_pda4.dts - Device Tree file for the SAMA5D3 Xplained board with TM43xx display panel
+ * Device Tree file for the SAMA5D3 Xplained board with PDA4.3 screen
  *
  *  Copyright (C) 2014 Atmel,
  *		  2014 Ludovic Desroches <ludovic.desroches@atmel.com>
@@ -7,12 +7,12 @@
  * Licensed under GPLv2 or later.
  */
 /dts-v1/;
-#include "sama5d3.dtsi"
+#include "sama5d36.dtsi"
 #include "at91-sama5d3_xplained_dm_pda4.dtsi"
 
 / {
 	model = "Atmel SAMA5D3 Xplained TM43xx";
-	compatible = "atmel,sama5d3-xplained", "pda,tm43xx", "atmel,sama5d3", "atmel,sama5";
+	compatible = "atmel,sama5d3-xplained", "atmel,sama5d3", "atmel,sama5";
 
 	chosen {
 		bootargs = "console=ttyS0,115200";
@@ -23,12 +23,11 @@
 	};
 
 	clocks {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
+		slow_xtal {
+			clock-frequency = <32768>;
+		};
 
-		main_clock: clock@0 {
-			compatible = "atmel,osc", "fixed-clock";
+		main_xtal {
 			clock-frequency = <12000000>;
 		};
 	};
@@ -36,7 +35,6 @@
 	ahb {
 		apb {
 			mmc0: mmc@f0000000 {
-				pinctrl-names = "default";
 				pinctrl-0 = <&pinctrl_mmc0_clk_cmd_dat0 &pinctrl_mmc0_dat1_3 &pinctrl_mmc0_dat4_7 &pinctrl_mmc0_cd>;
 				status = "okay";
 				slot@0 {
@@ -47,7 +45,7 @@
 			};
 
 			spi0: spi@f0004000 {
-				cs-gpios = <&pioD 13 0>, <0>, <0>, <0>;
+				cs-gpios = <&pioD 13 0>, <0>, <0>, <&pioD 16 0>;
 				status = "okay";
 			};
 
@@ -56,6 +54,7 @@
 			};
 
 			i2c0: i2c@f0014000 {
+				pinctrl-0 = <&pinctrl_i2c0_pu>;
 				status = "okay";
 			};
 
@@ -70,7 +69,7 @@
 
 			pwm0: pwm@f002c000 {
 				pinctrl-names = "default";
-				pinctrl-0 = <&pinctrl_pwm0_pwml0>;
+				pinctrl-0 = <&pinctrl_pwm0_pwmh0_0 &pinctrl_pwm0_pwmh1_0>;
 				status = "okay";
 			};
 
@@ -79,7 +78,6 @@
 			};
 
 			usart1: serial@f0020000 {
-				pinctrl-names = "default";
 				pinctrl-0 = <&pinctrl_usart1 &pinctrl_usart1_rts_cts>;
 				status = "okay";
 			};
@@ -89,7 +87,6 @@
 			};
 
 			mmc1: mmc@f8000000 {
-				pinctrl-names = "default";
 				pinctrl-0 = <&pinctrl_mmc1_clk_cmd_dat0 &pinctrl_mmc1_dat1_3 &pinctrl_mmc1_cd>;
 				status = "okay";
 				slot@0 {
@@ -100,12 +97,11 @@
 			};
 
 			spi1: spi@f8008000 {
-				cs-gpios = <&pioC 25 0>, <0>, <0>, <&pioD 16 0>;
+				cs-gpios = <&pioC 25 0>;
 				status = "okay";
 			};
 
 			adc0: adc@f8018000 {
-				pinctrl-names = "default";
 				pinctrl-0 = <
 					&pinctrl_adc0_adtrg
 					&pinctrl_adc0_ad0
@@ -124,6 +120,7 @@
 
 			i2c2: i2c@f801c000 {
 				dmas = <0>, <0>;	/* Do not use DMA for i2c2 */
+				pinctrl-0 = <&pinctrl_i2c2_pu>;
 				status = "okay";
 			};
 
@@ -132,8 +129,24 @@
 				status = "okay";
 			};
 
+			dbgu: serial@ffffee00 {
+				status = "okay";
+			};
+
 			pinctrl@fffff200 {
 				board {
+					pinctrl_i2c0_pu: i2c0_pu {
+						atmel,pins =
+							<AT91_PIOA 30 AT91_PERIPH_A AT91_PINCTRL_PULL_UP>,
+							<AT91_PIOA 31 AT91_PERIPH_A AT91_PINCTRL_PULL_UP>;
+					};
+
+					pinctrl_i2c2_pu: i2c2_pu {
+						atmel,pins =
+							<AT91_PIOA 18 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>,
+							<AT91_PIOA 19 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>;
+					};
+
 					pinctrl_mmc0_cd: mmc0_cd {
 						atmel,pins =
 							<AT91_PIOE 0 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;
@@ -144,20 +157,22 @@
 							<AT91_PIOE 1 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;
 					};
 
-					pinctrl_pwm0_pwml0: pwm0_pwml0 {
-						atmel,pins =
-							<AT91_PIOA 21 AT91_PERIPH_B AT91_PINCTRL_NONE>;
-					};
-
 					pinctrl_usba_vbus: usba_vbus {
 						atmel,pins =
 							<AT91_PIOE 9 AT91_PERIPH_GPIO AT91_PINCTRL_DEGLITCH>;	/* PE9, conflicts with A9 */
 					};
+
+					pinctrl_key_gpio: key_gpio_0 {
+						atmel,pins =
+							<AT91_PIOE 29 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;
+					};
 				};
 			};
 
-			dbgu: serial@ffffee00 {
-				status = "okay";
+			pmc: pmc@fffffc00 {
+				main: mainck {
+					clock-frequency = <12000000>;
+				};
 			};
 		};
 
@@ -224,6 +239,9 @@
 
 	gpio_keys {
 		compatible = "gpio-keys";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_key_gpio>;
 
 		bp3 {
 			label = "PB_USER";

@@ -2132,7 +2132,7 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 			goto done;
 		}
 
-		if (strnicmp(buff, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
+		if (strncasecmp(buff, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
 			uint32_t mode = *(buff + strlen("BTCOEXMODE") + 1) - '0';
 #ifdef WILC_BT_COEXISTENCE
 			PRINT_D(GENERIC_DBG, "[COEX] [DRV] rcvd IO ctrl << BT-MODE: %d >>\n", mode);
@@ -2158,7 +2158,7 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 
 			PRINT_D(GENERIC_DBG, "IOCTRL priv: %s", buff);
 
-			if (strnicmp(buff, "RSSI", size) == 0) {
+			if (strncasecmp(buff, "RSSI", size) == 0) {
 				s32Error = host_int_get_rssi(priv->hWILCWFIDrv, &(rssi));
 				if (s32Error)
 					PRINT_ER("Failed to send get rssi param's message queue ");
@@ -2173,7 +2173,7 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 					s32Error = -EFAULT;
 					goto done;
 				}
-			} else if (strnicmp(buff, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
+			} else if (strncasecmp(buff, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
 				uint32_t mode = *(buff + strlen("BTCOEXMODE") + 1) - '0';
 #ifdef WILC_BT_COEXISTENCE
 				PRINT_D(GENERIC_DBG, "[COEX] [DRV] rcvd IO ctrl << BT-MODE: %d >>\n", mode);
@@ -2182,11 +2182,11 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 				*/
 
 #endif
-			} else if (strnicmp(buff, "BTCOEXSCAN-START", strlen("BTCOEXSCAN-START")) == 0) {
+			} else if (strncasecmp(buff, "BTCOEXSCAN-START", strlen("BTCOEXSCAN-START")) == 0) {
 #ifdef WILC_BT_COEXISTENCE
 				PRINT_D(GENERIC_DBG, "[COEX] [DRV] rcvd IO ctrl << BTCOEXSCAN-START >>\n");
 #endif
-			} else if (strnicmp(buff, "BTCOEXSCAN-STOP", strlen("BTCOEXSCAN-STOP")) == 0) {
+			} else if (strncasecmp(buff, "BTCOEXSCAN-STOP", strlen("BTCOEXSCAN-STOP")) == 0) {
 #ifdef WILC_BT_COEXISTENCE
 				PRINT_D(GENERIC_DBG, "[COEX] [DRV] rcvd IO ctrl << BTCOEXSCAN-STOP >>\n");
 #endif

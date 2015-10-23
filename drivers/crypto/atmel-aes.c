@@ -315,10 +315,10 @@ static int atmel_aes_crypt_dma(struct atmel_aes_dev *dd,
 
 	dd->dma_size = length;
 
-	if (!(dd->flags & AES_FLAGS_FAST)) {
-		dma_sync_single_for_device(dd->dev, dma_addr_in, length,
-					   DMA_TO_DEVICE);
-	}
+	dma_sync_single_for_device(dd->dev, dma_addr_in, length,
+				   DMA_TO_DEVICE);
+	dma_sync_single_for_device(dd->dev, dma_addr_out, length,
+				   DMA_FROM_DEVICE);
 
 	if (dd->flags & AES_FLAGS_CFB8) {
 		dd->dma_lch_in.dma_conf.dst_addr_width =
@@ -391,6 +391,11 @@ static int atmel_aes_crypt_cpu_start(struct atmel_aes_dev *dd)
 {
 	dd->flags &= ~AES_FLAGS_DMA;
 
+	dma_sync_single_for_cpu(dd->dev, dd->dma_addr_in,
+				dd->dma_size, DMA_TO_DEVICE);
+	dma_sync_single_for_cpu(dd->dev, dd->dma_addr_out,
+				dd->dma_size, DMA_FROM_DEVICE);
+
 	/* use cache buffers */
 	dd->nb_in_sg = atmel_aes_sg_length(dd->req, dd->in_sg);
 	if (!dd->nb_in_sg)
@@ -459,6 +464,9 @@ static int atmel_aes_crypt_dma_start(struct atmel_aes_dev *dd)
 		dd->flags |= AES_FLAGS_FAST;
 
 	} else {
+		dma_sync_single_for_cpu(dd->dev, dd->dma_addr_in,
+					dd->dma_size, DMA_TO_DEVICE);
+
 		/* use cache buffers */
 		count = atmel_aes_sg_copy(&dd->in_sg, &dd->in_offset,
 				dd->buf_in, dd->buflen, dd->total, 0);
@@ -619,7 +627,7 @@ static int atmel_aes_crypt_dma_stop(struct atmel_aes_dev *dd)
 			dma_unmap_sg(dd->dev, dd->out_sg, 1, DMA_FROM_DEVICE);
 			dma_unmap_sg(dd->dev, dd->in_sg, 1, DMA_TO_DEVICE);
 		} else {
-			dma_sync_single_for_device(dd->dev, dd->dma_addr_out,
+			dma_sync_single_for_cpu(dd->dev, dd->dma_addr_out,
 				dd->dma_size, DMA_FROM_DEVICE);
 
 			/* copy data */
@@ -716,6 +724,12 @@ static int atmel_aes_crypt(struct ablkcipher_request *req, unsigned long mode)
 			return -EINVAL;
 		}
 		ctx->block_size = CFB32_BLOCK_SIZE;
+	} else if (mode & AES_FLAGS_CFB64) {
+		if (!IS_ALIGNED(req->nbytes, CFB64_BLOCK_SIZE)) {
+			pr_err("request size is not exact amount of CFB64 blocks\n");
+			return -EINVAL;
+		}
+		ctx->block_size = CFB64_BLOCK_SIZE;
 	} else {
 		if (!IS_ALIGNED(req->nbytes, AES_BLOCK_SIZE)) {
 			pr_err("request size is not exact amount of AES blocks\n");
@@ -1069,7 +1083,7 @@ static struct crypto_alg aes_algs[] = {
 	.cra_driver_name	= "atmel-cfb8-aes",
 	.cra_priority		= 100,
 	.cra_flags		= CRYPTO_ALG_TYPE_ABLKCIPHER | CRYPTO_ALG_ASYNC,
-	.cra_blocksize		= CFB64_BLOCK_SIZE,
+	.cra_blocksize		= CFB8_BLOCK_SIZE,
 	.cra_ctxsize		= sizeof(struct atmel_aes_ctx),
 	.cra_alignmask		= 0x0,
 	.cra_type		= &crypto_ablkcipher_type,
@@ -1335,6 +1349,7 @@ static int atmel_aes_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, aes_dd);
 
 	INIT_LIST_HEAD(&aes_dd->list);
+	spin_lock_init(&aes_dd->lock);
 
 	tasklet_init(&aes_dd->done_task, atmel_aes_done_task,
 					(unsigned long)aes_dd);

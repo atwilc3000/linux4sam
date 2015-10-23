@@ -12,7 +12,7 @@ struct atmel_ssc_platform_data {
 
 struct ssc_device {
 	struct list_head	list;
-	resource_size_t		phybase;
+	dma_addr_t		phybase;
 	void __iomem		*regs;
 	struct platform_device	*pdev;
 	struct atmel_ssc_platform_data *pdata;
@@ -20,13 +20,6 @@ struct ssc_device {
 	int			user;
 	int			irq;
 	bool			clk_from_rk_pin;
-
-#ifdef CONFIG_PM
-	/* Two pin states - default, sleep */
-	struct pinctrl		*pinctrl;
-	struct pinctrl_state	*pins_default;
-	struct pinctrl_state	*pins_sleep;
-#endif
 };
 
 struct ssc_device * __must_check ssc_request(unsigned int ssc_num);
