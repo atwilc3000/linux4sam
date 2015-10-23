@@ -860,22 +860,6 @@ static unsigned int soc_camera_poll(struct file *file, poll_table *pt)
 	return res;
 }
 
-void soc_camera_lock(struct vb2_queue *vq)
-{
-	struct soc_camera_device *icd = vb2_get_drv_priv(vq);
-	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
-	mutex_lock(&ici->host_lock);
-}
-EXPORT_SYMBOL(soc_camera_lock);
-
-void soc_camera_unlock(struct vb2_queue *vq)
-{
-	struct soc_camera_device *icd = vb2_get_drv_priv(vq);
-	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
-	mutex_unlock(&ici->host_lock);
-}
-EXPORT_SYMBOL(soc_camera_unlock);
-
 static struct v4l2_file_operations soc_camera_fops = {
 	.owner		= THIS_MODULE,
 	.open		= soc_camera_open,
@@ -1720,11 +1704,19 @@ static void scan_of_host(struct soc_camera_host *ici)
 			continue;
 		}
 
-		soc_of_bind(ici, epn, ren->parent);
+		/* so we now have a remote node to connect */
+		if (!i)
+			soc_of_bind(ici, epn, ren->parent);
 
-		of_node_put(epn);
 		of_node_put(ren);
+
+		if (i) {
+			dev_err(dev, "multiple subdevices aren't supported yet!\n");
+			break;
+		}
 	}
+
+	of_node_put(epn);
 }
 
 #else
@@ -1816,8 +1808,6 @@ eadddev:
 		soc_camera_clock_stop(ici);
 	}
 eadd:
-	video_device_release(icd->vdev);
-	icd->vdev = NULL;
 	if (icd->vdev) {
 		video_device_release(icd->vdev);
 		icd->vdev = NULL;
@@ -1909,22 +1899,34 @@ static int default_enum_framesizes(struct soc_camera_device *icd,
 	int ret;
 	struct v4l2_subdev *sd = soc_camera_to_subdev(icd);
 	const struct soc_camera_format_xlate *xlate;
-	__u32 pixfmt = fsize->pixel_format;
-	struct v4l2_frmsizeenum fsize_mbus = *fsize;
+	struct v4l2_subdev_frame_size_enum fse = {
+		.index = fsize->index,
+		.which = V4L2_SUBDEV_FORMAT_ACTIVE,
+	};
 
-	xlate = soc_camera_xlate_by_fourcc(icd, pixfmt);
+	xlate = soc_camera_xlate_by_fourcc(icd, fsize->pixel_format);
 	if (!xlate)
 		return -EINVAL;
-	/* map xlate-code to pixel_format, sensor only handle xlate-code*/
-	fsize_mbus.pixel_format = xlate->code;
+	fse.code = xlate->code;
 
-	ret = v4l2_subdev_call(sd, video, enum_framesizes, &fsize_mbus);
+	ret = v4l2_subdev_call(sd, pad, enum_frame_size, NULL, &fse);
 	if (ret < 0)
 		return ret;
 
-	*fsize = fsize_mbus;
-	fsize->pixel_format = pixfmt;
-
+	if (fse.min_width == fse.max_width &&
+	    fse.min_height == fse.max_height) {
+		fsize->type = V4L2_FRMSIZE_TYPE_DISCRETE;
+		fsize->discrete.width = fse.min_width;
+		fsize->discrete.height = fse.min_height;
+		return 0;
+	}
+	fsize->type = V4L2_FRMSIZE_TYPE_CONTINUOUS;
+	fsize->stepwise.min_width = fse.min_width;
+	fsize->stepwise.max_width = fse.max_width;
+	fsize->stepwise.min_height = fse.min_height;
+	fsize->stepwise.max_height = fse.max_height;
+	fsize->stepwise.step_width = 1;
+	fsize->stepwise.step_height = 1;
 	return 0;
 }
 
@@ -2237,7 +2239,6 @@ static struct platform_driver __refdata soc_camera_pdrv = {
 	.remove  = soc_camera_pdrv_remove,
 	.driver  = {
 		.name	= "soc-camera-pdrv",
-		.owner	= THIS_MODULE,
 	},
 };
 

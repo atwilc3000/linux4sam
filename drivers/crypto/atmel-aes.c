@@ -681,9 +681,9 @@ err_map_out:
 	dma_unmap_single(dd->dev, dd->dma_addr_in, dd->buflen,
 		DMA_TO_DEVICE);
 err_map_in:
+err_alloc:
 	free_page((unsigned long)dd->buf_out);
 	free_page((unsigned long)dd->buf_in);
-err_alloc:
 	if (err)
 		pr_err("error: %d\n", err);
 	return err;
@@ -1388,7 +1388,7 @@ static int atmel_aes_probe(struct platform_device *pdev)
 	/* Initializing the clock */
 	aes_dd->iclk = clk_get(&pdev->dev, "aes_clk");
 	if (IS_ERR(aes_dd->iclk)) {
-		dev_err(dev, "clock intialization failed.\n");
+		dev_err(dev, "clock initialization failed.\n");
 		err = PTR_ERR(aes_dd->iclk);
 		goto clk_err;
 	}
@@ -1487,7 +1487,6 @@ static struct platform_driver atmel_aes_driver = {
 	.remove		= atmel_aes_remove,
 	.driver		= {
 		.name	= "atmel_aes",
-		.owner	= THIS_MODULE,
 		.of_match_table = of_match_ptr(atmel_aes_dt_ids),
 	},
 };

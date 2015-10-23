@@ -13,7 +13,6 @@
  * published by the Free Software Foundation.
  */
 
-#include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
@@ -26,6 +25,7 @@
 #include <linux/spi/spi.h>
 #include <linux/of_device.h>
 #include <linux/mutex.h>
+#include <linux/clk.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
@@ -127,7 +127,7 @@ static int wm8731_get_deemph(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
 
-	ucontrol->value.enumerated.item[0] = wm8731->deemph;
+	ucontrol->value.integer.value[0] = wm8731->deemph;
 
 	return 0;
 }
@@ -137,7 +137,7 @@ static int wm8731_put_deemph(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
-	int deemph = ucontrol->value.enumerated.item[0];
+	int deemph = ucontrol->value.integer.value[0];
 	int ret = 0;
 
 	if (deemph > 1)
@@ -219,7 +219,8 @@ SND_SOC_DAPM_INPUT("LLINEIN"),
 static int wm8731_check_osc(struct snd_soc_dapm_widget *source,
 			    struct snd_soc_dapm_widget *sink)
 {
-	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(source->codec);
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(source->dapm);
+	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
 
 	return wm8731->sysclk_type == WM8731_SYSCLK_XTAL;
 }
@@ -391,9 +392,8 @@ static int wm8731_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 	switch (clk_id) {
 	case WM8731_SYSCLK_XTAL:
 	case WM8731_SYSCLK_MCLK:
-		if (IS_ENABLED(CONFIG_COMMON_CLK))
-			if (clk_set_rate(wm8731->mclk, freq))
-				return -EINVAL;
+		if (wm8731->mclk && clk_set_rate(wm8731->mclk, freq))
+			return -EINVAL;
 		wm8731->sysclk_type = clk_id;
 		break;
 	default:
@@ -495,9 +495,8 @@ static int wm8731_set_bias_level(struct snd_soc_codec *codec,
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
-		if (IS_ENABLED(CONFIG_COMMON_CLK))
-			if (clk_prepare_enable(wm8731->mclk))
-				return -EINVAL;
+		if (wm8731->mclk)
+			clk_prepare_enable(wm8731->mclk);
 		break;
 	case SND_SOC_BIAS_PREPARE:
 		break;
@@ -516,7 +515,7 @@ static int wm8731_set_bias_level(struct snd_soc_codec *codec,
 		snd_soc_write(codec, WM8731_PWR, reg | 0x0040);
 		break;
 	case SND_SOC_BIAS_OFF:
-		if (IS_ENABLED(CONFIG_COMMON_CLK))
+		if (wm8731->mclk)
 			clk_disable_unprepare(wm8731->mclk);
 		snd_soc_write(codec, WM8731_PWR, 0xffff);
 		regulator_bulk_disable(ARRAY_SIZE(wm8731->supplies),
@@ -676,11 +675,15 @@ static int wm8731_spi_probe(struct spi_device *spi)
 	if (wm8731 == NULL)
 		return -ENOMEM;
 
-	if (IS_ENABLED(CONFIG_COMMON_CLK)) {
-		wm8731->mclk = devm_clk_get(&spi->dev, "mclk");
-		if (IS_ERR(wm8731->mclk)) {
-			ret = PTR_ERR(wm8731->mclk);
-			dev_err(&spi->dev, "Failed to get MCLK\n");
+	wm8731->mclk = devm_clk_get(&spi->dev, "mclk");
+	if (IS_ERR(wm8731->mclk)) {
+		ret = PTR_ERR(wm8731->mclk);
+		if (ret == -ENOENT) {
+			wm8731->mclk = NULL;
+			dev_warn(&spi->dev, "Assuming static MCLK\n");
+		} else {
+			dev_err(&spi->dev, "Failed to get MCLK: %d\n",
+				ret);
 			return ret;
 		}
 	}
@@ -736,11 +739,15 @@ static int wm8731_i2c_probe(struct i2c_client *i2c,
 	if (wm8731 == NULL)
 		return -ENOMEM;
 
-	if (IS_ENABLED(CONFIG_COMMON_CLK)) {
-		wm8731->mclk = devm_clk_get(&i2c->dev, "mclk");
-		if (IS_ERR(wm8731->mclk)) {
-			ret = PTR_ERR(wm8731->mclk);
-			dev_err(&i2c->dev, "Failed to get MCLK\n");
+	wm8731->mclk = devm_clk_get(&i2c->dev, "mclk");
+	if (IS_ERR(wm8731->mclk)) {
+		ret = PTR_ERR(wm8731->mclk);
+		if (ret == -ENOENT) {
+			wm8731->mclk = NULL;
+			dev_warn(&i2c->dev, "Assuming static MCLK\n");
+		} else {
+			dev_err(&i2c->dev, "Failed to get MCLK: %d\n",
+				ret);
 			return ret;
 		}
 	}

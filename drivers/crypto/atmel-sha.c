@@ -102,10 +102,6 @@ struct atmel_sha_ctx {
 	struct atmel_sha_dev	*dd;
 
 	unsigned long		flags;
-
-	/* fallback stuff */
-	struct crypto_shash	*fallback;
-
 };
 
 #define ATMEL_SHA_QUEUE_LENGTH	50
@@ -169,16 +165,17 @@ static size_t atmel_sha_append_sg(struct atmel_sha_reqctx *ctx)
 
 		if (count <= 0) {
 			/*
-			 * Check if count <= 0 because the buffer is full or
-			 * because the sg length is 0. In the latest case,
-			 * check if there is another sg in the list, a 0 length
-			 * sg doesn't necessarily mean the end of the sg list.
-			 */
+			* Check if count <= 0 because the buffer is full or
+			* because the sg length is 0. In the latest case,
+			* check if there is another sg in the list, a 0 length
+			* sg doesn't necessarily mean the end of the sg list.
+			*/
 			if ((ctx->sg->length == 0) && !sg_is_last(ctx->sg)) {
 				ctx->sg = sg_next(ctx->sg);
 				continue;
-			} else
+			} else {
 				break;
+			}
 		}
 
 		scatterwalk_map_and_copy(ctx->buffer + ctx->bufcnt, ctx->sg,
@@ -979,37 +976,13 @@ static int atmel_sha_digest(struct ahash_request *req)
 	return atmel_sha_init(req) ?: atmel_sha_finup(req);
 }
 
-static int atmel_sha_cra_init_alg(struct crypto_tfm *tfm, const char *alg_base)
+static int atmel_sha_cra_init(struct crypto_tfm *tfm)
 {
-	struct atmel_sha_ctx *tctx = crypto_tfm_ctx(tfm);
-	const char *alg_name = crypto_tfm_alg_name(tfm);
-
-	/* Allocate a fallback and abort if it failed. */
-	tctx->fallback = crypto_alloc_shash(alg_name, 0,
-					    CRYPTO_ALG_NEED_FALLBACK);
-	if (IS_ERR(tctx->fallback)) {
-		pr_err("atmel-sha: fallback driver '%s' could not be loaded.\n",
-				alg_name);
-		return PTR_ERR(tctx->fallback);
-	}
 	crypto_ahash_set_reqsize(__crypto_ahash_cast(tfm),
 				 sizeof(struct atmel_sha_reqctx) +
 				 SHA_BUFFER_LEN + SHA512_BLOCK_SIZE);
 
 	return 0;
-}
-
-static int atmel_sha_cra_init(struct crypto_tfm *tfm)
-{
-	return atmel_sha_cra_init_alg(tfm, NULL);
-}
-
-static void atmel_sha_cra_exit(struct crypto_tfm *tfm)
-{
-	struct atmel_sha_ctx *tctx = crypto_tfm_ctx(tfm);
-
-	crypto_free_shash(tctx->fallback);
-	tctx->fallback = NULL;
 }
 
 static struct ahash_alg sha_1_256_algs[] = {
@@ -1025,14 +998,12 @@ static struct ahash_alg sha_1_256_algs[] = {
 			.cra_name		= "sha1",
 			.cra_driver_name	= "atmel-sha1",
 			.cra_priority		= 100,
-			.cra_flags		= CRYPTO_ALG_ASYNC |
-						CRYPTO_ALG_NEED_FALLBACK,
+			.cra_flags		= CRYPTO_ALG_ASYNC,
 			.cra_blocksize		= SHA1_BLOCK_SIZE,
 			.cra_ctxsize		= sizeof(struct atmel_sha_ctx),
 			.cra_alignmask		= 0,
 			.cra_module		= THIS_MODULE,
 			.cra_init		= atmel_sha_cra_init,
-			.cra_exit		= atmel_sha_cra_exit,
 		}
 	}
 },
@@ -1048,14 +1019,12 @@ static struct ahash_alg sha_1_256_algs[] = {
 			.cra_name		= "sha256",
 			.cra_driver_name	= "atmel-sha256",
 			.cra_priority		= 100,
-			.cra_flags		= CRYPTO_ALG_ASYNC |
-						CRYPTO_ALG_NEED_FALLBACK,
+			.cra_flags		= CRYPTO_ALG_ASYNC,
 			.cra_blocksize		= SHA256_BLOCK_SIZE,
 			.cra_ctxsize		= sizeof(struct atmel_sha_ctx),
 			.cra_alignmask		= 0,
 			.cra_module		= THIS_MODULE,
 			.cra_init		= atmel_sha_cra_init,
-			.cra_exit		= atmel_sha_cra_exit,
 		}
 	}
 },
@@ -1073,14 +1042,12 @@ static struct ahash_alg sha_224_alg = {
 			.cra_name		= "sha224",
 			.cra_driver_name	= "atmel-sha224",
 			.cra_priority		= 100,
-			.cra_flags		= CRYPTO_ALG_ASYNC |
-						CRYPTO_ALG_NEED_FALLBACK,
+			.cra_flags		= CRYPTO_ALG_ASYNC,
 			.cra_blocksize		= SHA224_BLOCK_SIZE,
 			.cra_ctxsize		= sizeof(struct atmel_sha_ctx),
 			.cra_alignmask		= 0,
 			.cra_module		= THIS_MODULE,
 			.cra_init		= atmel_sha_cra_init,
-			.cra_exit		= atmel_sha_cra_exit,
 		}
 	}
 };
@@ -1098,14 +1065,12 @@ static struct ahash_alg sha_384_512_algs[] = {
 			.cra_name		= "sha384",
 			.cra_driver_name	= "atmel-sha384",
 			.cra_priority		= 100,
-			.cra_flags		= CRYPTO_ALG_ASYNC |
-						CRYPTO_ALG_NEED_FALLBACK,
+			.cra_flags		= CRYPTO_ALG_ASYNC,
 			.cra_blocksize		= SHA384_BLOCK_SIZE,
 			.cra_ctxsize		= sizeof(struct atmel_sha_ctx),
 			.cra_alignmask		= 0x3,
 			.cra_module		= THIS_MODULE,
 			.cra_init		= atmel_sha_cra_init,
-			.cra_exit		= atmel_sha_cra_exit,
 		}
 	}
 },
@@ -1121,14 +1086,12 @@ static struct ahash_alg sha_384_512_algs[] = {
 			.cra_name		= "sha512",
 			.cra_driver_name	= "atmel-sha512",
 			.cra_priority		= 100,
-			.cra_flags		= CRYPTO_ALG_ASYNC |
-						CRYPTO_ALG_NEED_FALLBACK,
+			.cra_flags		= CRYPTO_ALG_ASYNC,
 			.cra_blocksize		= SHA512_BLOCK_SIZE,
 			.cra_ctxsize		= sizeof(struct atmel_sha_ctx),
 			.cra_alignmask		= 0x3,
 			.cra_module		= THIS_MODULE,
 			.cra_init		= atmel_sha_cra_init,
-			.cra_exit		= atmel_sha_cra_exit,
 		}
 	}
 },
@@ -1435,7 +1398,7 @@ static int atmel_sha_probe(struct platform_device *pdev)
 	/* Initializing the clock */
 	sha_dd->iclk = clk_get(&pdev->dev, "sha_clk");
 	if (IS_ERR(sha_dd->iclk)) {
-		dev_err(dev, "clock intialization failed.\n");
+		dev_err(dev, "clock initialization failed.\n");
 		err = PTR_ERR(sha_dd->iclk);
 		goto clk_err;
 	}
@@ -1541,7 +1504,6 @@ static struct platform_driver atmel_sha_driver = {
 	.remove		= atmel_sha_remove,
 	.driver		= {
 		.name	= "atmel_sha",
-		.owner	= THIS_MODULE,
 		.of_match_table	= of_match_ptr(atmel_sha_dt_ids),
 	},
 };

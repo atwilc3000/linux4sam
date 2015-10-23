@@ -525,7 +525,7 @@ static int wm8904_get_deemph(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct wm8904_priv *wm8904 = snd_soc_codec_get_drvdata(codec);
 
-	ucontrol->value.enumerated.item[0] = wm8904->deemph;
+	ucontrol->value.integer.value[0] = wm8904->deemph;
 	return 0;
 }
 
@@ -534,7 +534,7 @@ static int wm8904_put_deemph(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct wm8904_priv *wm8904 = snd_soc_codec_get_drvdata(codec);
-	int deemph = ucontrol->value.enumerated.item[0];
+	int deemph = ucontrol->value.integer.value[0];
 
 	if (deemph > 1)
 		return -EINVAL;
@@ -673,7 +673,7 @@ static int cp_event(struct snd_soc_dapm_widget *w,
 static int sysclk_event(struct snd_soc_dapm_widget *w,
 			 struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct wm8904_priv *wm8904 = snd_soc_codec_get_drvdata(codec);
 
 	switch (event) {
@@ -711,7 +711,7 @@ static int sysclk_event(struct snd_soc_dapm_widget *w,
 static int out_pga_event(struct snd_soc_dapm_widget *w,
 			 struct snd_kcontrol *kcontrol, int event)
 {
-	struct snd_soc_codec *codec = w->codec;
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct wm8904_priv *wm8904 = snd_soc_codec_get_drvdata(codec);
 	int reg, val;
 	int dcs_mask;
@@ -1862,6 +1862,9 @@ static int wm8904_set_bias_level(struct snd_soc_codec *codec,
 				return ret;
 			}
 
+			regcache_cache_only(wm8904->regmap, false);
+			regcache_sync(wm8904->regmap);
+
 			/* Enable bias */
 			snd_soc_update_bits(codec, WM8904_BIAS_CONTROL_0,
 					    WM8904_BIAS_ENA, WM8904_BIAS_ENA);
@@ -1895,6 +1898,9 @@ static int wm8904_set_bias_level(struct snd_soc_codec *codec,
 		/* Stop bias generation */
 		snd_soc_update_bits(codec, WM8904_BIAS_CONTROL_0,
 				    WM8904_BIAS_ENA, 0);
+
+		regcache_cache_only(wm8904->regmap, true);
+		regcache_mark_dirty(wm8904->regmap);
 
 		regulator_bulk_disable(ARRAY_SIZE(wm8904->supplies),
 				       wm8904->supplies);
@@ -2255,6 +2261,7 @@ static int wm8904_i2c_probe(struct i2c_client *i2c,
 			    WM8904_POBCTRL, 0);
 
 	/* Can leave the device powered off until we need it */
+	regcache_cache_only(wm8904->regmap, true);
 	regulator_bulk_disable(ARRAY_SIZE(wm8904->supplies), wm8904->supplies);
 
 	ret = snd_soc_register_codec(&i2c->dev,

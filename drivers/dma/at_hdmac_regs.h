@@ -112,7 +112,6 @@
 #define		ATC_SRC_WIDTH_BYTE	(0x0 << 24)
 #define		ATC_SRC_WIDTH_HALFWORD	(0x1 << 24)
 #define		ATC_SRC_WIDTH_WORD	(0x2 << 24)
-#define		ATC_REG_TO_SRC_WIDTH(r)	(((r) >> 24) & 0x3)
 #define	ATC_DST_WIDTH_MASK	(0x3 << 28)	/* Destination Single Transfer Size */
 #define		ATC_DST_WIDTH(x)	((x) << 28)
 #define		ATC_DST_WIDTH_BYTE	(0x0 << 28)
@@ -183,6 +182,7 @@ struct at_lli {
  * @txd: support for the async_tx api
  * @desc_node: node on the channed descriptors list
  * @len: descriptor byte count
+ * @tx_width: transfer width
  * @total_len: total transaction byte count
  */
 struct at_desc {
@@ -194,6 +194,7 @@ struct at_desc {
 	struct dma_async_tx_descriptor	txd;
 	struct list_head		desc_node;
 	size_t				len;
+	u32				tx_width;
 	size_t				total_len;
 };
 
@@ -231,7 +232,8 @@ enum atc_status {
  * @save_cfg: configuration register that is saved on suspend/resume cycle
  * @save_dscr: for cyclic operations, preserve next descriptor address in
  *             the cyclic list on suspend/resume cycle
- * @dma_sconfig: configuration for slave transfers, passed via DMA_SLAVE_CONFIG
+ * @dma_sconfig: configuration for slave transfers, passed via
+ * .device_config
  * @lock: serializes enqueue/dequeue operations to descriptors lists
  * @active_list: list of descriptors dmaengine is being running on
  * @queue: list of descriptors ready to be submitted to engine

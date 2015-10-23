@@ -485,7 +485,7 @@ static void pmecc_config_ecc_layout(struct nand_ecclayout *layout,
 	for (i = 0; i < ecc_len; i++)
 		layout->eccpos[i] = oobsize - ecc_len + i;
 
-	layout->oobfree[0].offset = 2;
+	layout->oobfree[0].offset = PMECC_OOB_RESERVED_BYTES;
 	layout->oobfree[0].length =
 		oobsize - ecc_len - layout->oobfree[0].offset;
 }
@@ -1204,14 +1204,14 @@ static int atmel_pmecc_nand_init_params(struct platform_device *pdev,
 		goto err;
 	}
 
-	regs_rom = platform_get_resource(pdev, IORESOURCE_MEM, 3);
-	host->pmecc_rom_base = devm_ioremap_resource(&pdev->dev, regs_rom);
-	if (IS_ERR(host->pmecc_rom_base)) {
-		if (!host->has_no_lookup_table)
-			/* Don't display the information again */
+	if (!host->has_no_lookup_table) {
+		regs_rom = platform_get_resource(pdev, IORESOURCE_MEM, 3);
+		host->pmecc_rom_base = devm_ioremap_resource(&pdev->dev,
+								regs_rom);
+		if (IS_ERR(host->pmecc_rom_base)) {
 			dev_err(host->dev, "Can not get I/O resource for ROM, will build a lookup table in runtime!\n");
-
-		host->has_no_lookup_table = true;
+			host->has_no_lookup_table = true;
+		}
 	}
 
 	if (host->has_no_lookup_table) {
@@ -1254,7 +1254,8 @@ static int atmel_pmecc_nand_init_params(struct platform_device *pdev,
 		nand_chip->ecc.steps = mtd->writesize / sector_size;
 		nand_chip->ecc.total = nand_chip->ecc.bytes *
 			nand_chip->ecc.steps;
-		if (nand_chip->ecc.total > mtd->oobsize - 2) {
+		if (nand_chip->ecc.total >
+				mtd->oobsize - PMECC_OOB_RESERVED_BYTES) {
 			dev_err(host->dev, "No room for ECC bytes\n");
 			err_no = -EINVAL;
 			goto err;
@@ -1719,7 +1720,7 @@ static int nfc_wait_interrupt(struct atmel_nand_host *host, u32 flag)
 		comp[index++] = &host->nfc->comp_cmd_done;
 
 	if (index == 0) {
-		dev_err(host->dev, "Unkown interrupt flag: 0x%08x\n", flag);
+		dev_err(host->dev, "Unknown interrupt flag: 0x%08x\n", flag);
 		return -EINVAL;
 	}
 
@@ -2388,7 +2389,6 @@ MODULE_DEVICE_TABLE(of, atmel_nand_nfc_match);
 static struct platform_driver atmel_nand_nfc_driver = {
 	.driver = {
 		.name = "atmel_nand_nfc",
-		.owner = THIS_MODULE,
 		.of_match_table = of_match_ptr(atmel_nand_nfc_match),
 	},
 	.probe = atmel_nand_nfc_probe,
@@ -2400,7 +2400,6 @@ static struct platform_driver atmel_nand_driver = {
 	.remove		= atmel_nand_remove,
 	.driver		= {
 		.name	= "atmel_nand",
-		.owner	= THIS_MODULE,
 		.of_match_table	= of_match_ptr(atmel_nand_dt_ids),
 	},
 };

@@ -380,7 +380,6 @@ static int sh_csi2_remove(struct platform_device *pdev)
 	struct sh_csi2 *priv = container_of(subdev, struct sh_csi2, subdev);
 
 	v4l2_async_unregister_subdev(&priv->subdev);
-	v4l2_device_unregister_subdev(subdev);
 	pm_runtime_disable(&pdev->dev);
 
 	return 0;
@@ -391,7 +390,6 @@ static struct platform_driver __refdata sh_csi2_pdrv = {
 	.probe	= sh_csi2_probe,
 	.driver	= {
 		.name	= "sh-mobile-csi2",
-		.owner	= THIS_MODULE,
 	},
 };
 

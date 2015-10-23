@@ -330,12 +330,7 @@ static int em_gio_probe(struct platform_device *pdev)
 			goto err0;
 		}
 
-		ret = of_alias_get_id(pdev->dev.of_node, "gpio");
-		if (ret < 0) {
-			dev_err(&pdev->dev, "Couldn't get OF id\n");
-			goto err0;
-		}
-		pdata->gpio_base = ret * 32; /* 32 GPIOs per instance */
+		pdata->gpio_base = -1;
 	}
 
 	gpio_chip = &p->gpio_chip;
@@ -428,7 +423,6 @@ static struct platform_driver em_gio_device_driver = {
 	.driver		= {
 		.name	= "em_gio",
 		.of_match_table = em_gio_dt_ids,
-		.owner		= THIS_MODULE,
 	}
 };
 

@@ -20,7 +20,6 @@
  */
 
 #include <linux/clk.h>
-#include <linux/component.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
 #include <linux/module.h>
@@ -29,115 +28,6 @@
 #include "atmel_hlcdc_dc.h"
 
 #define ATMEL_HLCDC_LAYER_IRQS_OFFSET		8
-
-static const struct atmel_hlcdc_layer_desc atmel_hlcdc_at91sam9n12_layers[] = {
-	{
-		.name = "base",
-		.formats = &atmel_hlcdc_plane_rgb_formats,
-		.regs_offset = 0x40,
-		.id = 0,
-		.type = ATMEL_HLCDC_BASE_LAYER,
-		.nconfigs = 5,
-		.layout = {
-			.xstride = { 2 },
-			.default_color = 3,
-			.general_config = 4,
-		},
-	},
-};
-
-static const struct atmel_hlcdc_dc_desc atmel_hlcdc_dc_at91sam9n12 = {
-	.min_width = 0,
-	.min_height = 0,
-	.max_width = 1280,
-	.max_height = 860,
-	.nlayers = ARRAY_SIZE(atmel_hlcdc_at91sam9n12_layers),
-	.layers = atmel_hlcdc_at91sam9n12_layers,
-};
-
-static const struct atmel_hlcdc_layer_desc atmel_hlcdc_at91sam9x5_layers[] = {
-	{
-		.name = "base",
-		.formats = &atmel_hlcdc_plane_rgb_formats,
-		.regs_offset = 0x40,
-		.id = 0,
-		.type = ATMEL_HLCDC_BASE_LAYER,
-		.nconfigs = 5,
-		.layout = {
-			.xstride = { 2 },
-			.default_color = 3,
-			.general_config = 4,
-			.disc_pos = 5,
-			.disc_size = 6,
-		},
-	},
-	{
-		.name = "overlay1",
-		.formats = &atmel_hlcdc_plane_rgb_formats,
-		.regs_offset = 0x100,
-		.id = 1,
-		.type = ATMEL_HLCDC_OVERLAY_LAYER,
-		.nconfigs = 10,
-		.layout = {
-			.pos = 2,
-			.size = 3,
-			.xstride = { 4 },
-			.pstride = { 5 },
-			.default_color = 6,
-			.chroma_key = 7,
-			.chroma_key_mask = 8,
-			.general_config = 9,
-		},
-	},
-	{
-		.name = "high-end-overlay",
-		.formats = &atmel_hlcdc_plane_rgb_and_yuv_formats,
-		.regs_offset = 0x280,
-		.id = 2,
-		.type = ATMEL_HLCDC_OVERLAY_LAYER,
-		.nconfigs = 17,
-		.layout = {
-			.pos = 2,
-			.size = 3,
-			.memsize = 4,
-			.xstride = { 5, 7 },
-			.pstride = { 6, 8 },
-			.default_color = 9,
-			.chroma_key = 10,
-			.chroma_key_mask = 11,
-			.general_config = 12,
-			.csc = 14,
-		},
-	},
-	{
-		.name = "cursor",
-		.formats = &atmel_hlcdc_plane_rgb_formats,
-		.regs_offset = 0x340,
-		.id = 3,
-		.type = ATMEL_HLCDC_CURSOR_LAYER,
-		.nconfigs = 10,
-		.max_width = 128,
-		.max_height = 128,
-		.layout = {
-			.pos = 2,
-			.size = 3,
-			.xstride = { 4 },
-			.default_color = 6,
-			.chroma_key = 7,
-			.chroma_key_mask = 8,
-			.general_config = 9,
-		},
-	},
-};
-
-static const struct atmel_hlcdc_dc_desc atmel_hlcdc_dc_at91sam9x5 = {
-	.min_width = 0,
-	.min_height = 0,
-	.max_width = 800,
-	.max_height = 600,
-	.nlayers = ARRAY_SIZE(atmel_hlcdc_at91sam9x5_layers),
-	.layers = atmel_hlcdc_at91sam9x5_layers,
-};
 
 static const struct atmel_hlcdc_layer_desc atmel_hlcdc_sama5d3_layers[] = {
 	{
@@ -242,108 +132,10 @@ static const struct atmel_hlcdc_dc_desc atmel_hlcdc_dc_sama5d3 = {
 	.layers = atmel_hlcdc_sama5d3_layers,
 };
 
-static const struct atmel_hlcdc_layer_desc atmel_hlcdc_sama5d4_layers[] = {
-	{
-		.name = "base",
-		.formats = &atmel_hlcdc_plane_rgb_formats,
-		.regs_offset = 0x40,
-		.id = 0,
-		.type = ATMEL_HLCDC_BASE_LAYER,
-		.nconfigs = 7,
-		.layout = {
-			.xstride = { 2 },
-			.default_color = 3,
-			.general_config = 4,
-			.disc_pos = 5,
-			.disc_size = 6,
-		},
-	},
-	{
-		.name = "overlay1",
-		.formats = &atmel_hlcdc_plane_rgb_formats,
-		.regs_offset = 0x140,
-		.id = 1,
-		.type = ATMEL_HLCDC_OVERLAY_LAYER,
-		.nconfigs = 10,
-		.layout = {
-			.pos = 2,
-			.size = 3,
-			.xstride = { 4 },
-			.pstride = { 5 },
-			.default_color = 6,
-			.chroma_key = 7,
-			.chroma_key_mask = 8,
-			.general_config = 9,
-		},
-	},
-	{
-		.name = "overlay2",
-		.formats = &atmel_hlcdc_plane_rgb_formats,
-		.regs_offset = 0x240,
-		.id = 2,
-		.type = ATMEL_HLCDC_OVERLAY_LAYER,
-		.nconfigs = 10,
-		.layout = {
-			.pos = 2,
-			.size = 3,
-			.xstride = { 4 },
-			.pstride = { 5 },
-			.default_color = 6,
-			.chroma_key = 7,
-			.chroma_key_mask = 8,
-			.general_config = 9,
-		},
-	},
-	{
-		.name = "high-end-overlay",
-		.formats = &atmel_hlcdc_plane_rgb_and_yuv_formats,
-		.regs_offset = 0x340,
-		.id = 3,
-		.type = ATMEL_HLCDC_OVERLAY_LAYER,
-		.nconfigs = 42,
-		.layout = {
-			.pos = 2,
-			.size = 3,
-			.memsize = 4,
-			.xstride = { 5, 7 },
-			.pstride = { 6, 8 },
-			.default_color = 9,
-			.chroma_key = 10,
-			.chroma_key_mask = 11,
-			.general_config = 12,
-			.csc = 14,
-		},
-	},
-};
-
-static const struct atmel_hlcdc_dc_desc atmel_hlcdc_dc_sama5d4 = {
-	.min_width = 0,
-	.min_height = 0,
-	.max_width = 2048,
-	.max_height = 2048,
-	.nlayers = ARRAY_SIZE(atmel_hlcdc_sama5d4_layers),
-	.layers = atmel_hlcdc_sama5d4_layers,
-};
 static const struct of_device_id atmel_hlcdc_of_match[] = {
-	{
-		.compatible = "atmel,at91sam9n12-hlcdc",
-		.data = &atmel_hlcdc_dc_at91sam9n12,
-	},
-	{
-		.compatible = "atmel,at91sam9x5-hlcdc",
-		.data = &atmel_hlcdc_dc_at91sam9x5,
-	},
-	{
-		.compatible = "atmel,sama5d2-hlcdc",
-		.data = &atmel_hlcdc_dc_sama5d4,
-	},
 	{
 		.compatible = "atmel,sama5d3-hlcdc",
 		.data = &atmel_hlcdc_dc_sama5d3,
-	},
-	{
-		.compatible = "atmel,sama5d4-hlcdc",
-		.data = &atmel_hlcdc_dc_sama5d4,
 	},
 	{ /* sentinel */ },
 };
@@ -351,12 +143,12 @@ static const struct of_device_id atmel_hlcdc_of_match[] = {
 int atmel_hlcdc_dc_mode_valid(struct atmel_hlcdc_dc *dc,
 			      struct drm_display_mode *mode)
 {
-	int vfront_porch = mode->crtc_vsync_start - mode->crtc_vdisplay;
-	int vback_porch = mode->crtc_vtotal - mode->crtc_vsync_end;
-	int vsync_len = mode->crtc_vsync_end - mode->crtc_vsync_start;
-	int hfront_porch = mode->crtc_hsync_start - mode->crtc_hdisplay;
-	int hback_porch = mode->crtc_htotal - mode->crtc_hsync_end;
-	int hsync_len = mode->crtc_hsync_end - mode->crtc_hsync_start;
+	int vfront_porch = mode->vsync_start - mode->vdisplay;
+	int vback_porch = mode->vtotal - mode->vsync_end;
+	int vsync_len = mode->vsync_end - mode->vsync_start;
+	int hfront_porch = mode->hsync_start - mode->hdisplay;
+	int hback_porch = mode->htotal - mode->hsync_end;
+	int hsync_len = mode->hsync_end - mode->hsync_start;
 
 	if (hsync_len > 0x40 || hsync_len < 1)
 		return MODE_HSYNC;
@@ -366,12 +158,12 @@ int atmel_hlcdc_dc_mode_valid(struct atmel_hlcdc_dc *dc,
 
 	if (hfront_porch > 0x200 || hfront_porch < 1 ||
 	    hback_porch > 0x200 || hback_porch < 1 ||
-	    mode->crtc_hdisplay < 1)
+	    mode->hdisplay < 1)
 		return MODE_H_ILLEGAL;
 
 	if (vfront_porch > 0x40 || vfront_porch < 1 ||
 	    vback_porch > 0x40 || vback_porch < 0 ||
-	    mode->crtc_vdisplay < 1)
+	    mode->vdisplay < 1)
 		return MODE_V_ILLEGAL;
 
 	return MODE_OK;
@@ -430,6 +222,8 @@ static void atmel_hlcdc_fb_output_poll_changed(struct drm_device *dev)
 static const struct drm_mode_config_funcs mode_config_funcs = {
 	.fb_create = atmel_hlcdc_fb_create,
 	.output_poll_changed = atmel_hlcdc_fb_output_poll_changed,
+	.atomic_check = drm_atomic_helper_check,
+	.atomic_commit = drm_atomic_helper_commit,
 };
 
 static int atmel_hlcdc_dc_modeset_init(struct drm_device *dev)
@@ -439,15 +233,18 @@ static int atmel_hlcdc_dc_modeset_init(struct drm_device *dev)
 	int ret;
 	int i;
 
-//	ret = atmel_hlcdc_create_outputs(dev);
-//	if (ret)
-//		return ret;
+	drm_mode_config_init(dev);
+
+	ret = atmel_hlcdc_create_outputs(dev);
+	if (ret) {
+		dev_err(dev->dev, "failed to create panel: %d\n", ret);
+		return ret;
+	}
 
 	planes = atmel_hlcdc_create_planes(dev);
 	if (IS_ERR(planes)) {
 		dev_err(dev->dev, "failed to create planes\n");
-		ret = PTR_ERR(planes);
-		goto err_destroy_outputs;
+		return PTR_ERR(planes);
 	}
 
 	dc->planes = planes;
@@ -466,7 +263,7 @@ static int atmel_hlcdc_dc_modeset_init(struct drm_device *dev)
 	ret = atmel_hlcdc_crtc_create(dev);
 	if (ret) {
 		dev_err(dev->dev, "failed to create crtc\n");
-		goto err_destroy_outputs;
+		return ret;
 	}
 
 	dev->mode_config.min_width = dc->desc->min_width;
@@ -476,11 +273,6 @@ static int atmel_hlcdc_dc_modeset_init(struct drm_device *dev)
 	dev->mode_config.funcs = &mode_config_funcs;
 
 	return 0;
-
-err_destroy_outputs:
-	atmel_hlcdc_destroy_outputs(dev);
-
-	return ret;
 }
 
 static int atmel_hlcdc_dc_load(struct drm_device *dev)
@@ -527,6 +319,8 @@ static int atmel_hlcdc_dc_load(struct drm_device *dev)
 		goto err_periph_clk_disable;
 	}
 
+	drm_mode_config_reset(dev);
+
 	ret = drm_vblank_init(dev, 1);
 	if (ret < 0) {
 		dev_err(dev->dev, "failed to initialize vblank\n");
@@ -540,6 +334,8 @@ static int atmel_hlcdc_dc_load(struct drm_device *dev)
 		dev_err(dev->dev, "failed to install IRQ handler\n");
 		goto err_periph_clk_disable;
 	}
+
+	platform_set_drvdata(pdev, dev);
 
 	drm_kms_helper_poll_init(dev);
 
@@ -562,27 +358,22 @@ static void atmel_hlcdc_dc_unload(struct drm_device *dev)
 {
 	struct atmel_hlcdc_dc *dc = dev->dev_private;
 
-	if (!dc)
-		return;
-
 	if (dc->fbdev)
 		drm_fbdev_cma_fini(dc->fbdev);
 	flush_workqueue(dc->wq);
 	drm_kms_helper_poll_fini(dev);
+	drm_mode_config_cleanup(dev);
 	drm_vblank_cleanup(dev);
 
 	pm_runtime_get_sync(dev->dev);
 	drm_irq_uninstall(dev);
 	pm_runtime_put_sync(dev->dev);
 
-	atmel_hlcdc_destroy_outputs(dev);
 	dev->dev_private = NULL;
 
 	pm_runtime_disable(dev->dev);
 	clk_disable_unprepare(dc->hlcdc->periph_clk);
 	destroy_workqueue(dc->wq);
-
-	dev->dev_private = NULL;
 }
 
 static int atmel_hlcdc_dc_connector_plug_all(struct drm_device *dev)
@@ -717,17 +508,22 @@ static struct drm_driver atmel_hlcdc_dc_driver = {
 	.minor = 0,
 };
 
-static int atmel_hlcdc_init(struct drm_device *ddev)
+static int atmel_hlcdc_dc_drm_probe(struct platform_device *pdev)
 {
+	struct drm_device *ddev;
 	int ret;
 
-	ret = atmel_hlcdc_create_outputs(ddev);
+	ddev = drm_dev_alloc(&atmel_hlcdc_dc_driver, &pdev->dev);
+	if (!ddev)
+		return -ENOMEM;
+
+	ret = drm_dev_set_unique(ddev, dev_name(ddev->dev));
 	if (ret)
-		return ret;
+		goto err_unref;
 
 	ret = atmel_hlcdc_dc_load(ddev);
 	if (ret)
-		goto err_destroy_outputs;
+		goto err_unref;
 
 	ret = drm_dev_register(ddev, 0);
 	if (ret)
@@ -745,96 +541,6 @@ err_unregister:
 err_unload:
 	atmel_hlcdc_dc_unload(ddev);
 
-err_destroy_outputs:
-	atmel_hlcdc_destroy_outputs(ddev);
-
-	return ret;
-}
-
-static void atmel_hlcdc_cleanup(struct drm_device *ddev)
-{
-	atmel_hlcdc_dc_connector_unplug_all(ddev);
-	drm_dev_unregister(ddev);
-	atmel_hlcdc_dc_unload(ddev);
-	atmel_hlcdc_destroy_outputs(ddev);
-}
-
-static int atmel_hlcdc_output_bind(struct device *dev)
-{
-	struct drm_device *ddev = dev_get_drvdata(dev);
-	int ret;
-
-	ret = component_bind_all(dev, ddev);
-	if (ret)
-		return ret;
-
-	ret = atmel_hlcdc_init(ddev);
-	if (ret) {
-		component_unbind_all(dev, ddev);
-		return ret;
-	} else {
-		dev_info(ddev->dev, "DRM device successfully registered");
-	}
-
-	return 0;
-}
-
-static void atmel_hlcdc_output_unbind(struct device *dev)
-{
-	struct drm_device *ddev = dev_get_drvdata(dev);
-
-	atmel_hlcdc_cleanup(ddev);
-	component_unbind_all(dev, ddev);
-}
-
-static const struct component_master_ops atmel_hlcdc_output_master_ops = {
-	.bind = atmel_hlcdc_output_bind,
-	.unbind = atmel_hlcdc_output_unbind,
-};
-
-static int atmel_hlcdc_dc_drm_probe(struct platform_device *pdev)
-{
-	struct component_match *match = NULL;
-	struct drm_device *ddev;
-	int ret;
-
-	if (!atmel_hlcdc_output_panels_ready(&pdev->dev))
-		return -EPROBE_DEFER;
-
-	ddev = drm_dev_alloc(&atmel_hlcdc_dc_driver, &pdev->dev);
-	if (!ddev)
-		return -ENOMEM;
-
-	ret = drm_dev_set_unique(ddev, dev_name(ddev->dev));
-	if (ret) {
-		drm_dev_unref(ddev);
-		return ret;
-	}
-
-	drm_mode_config_init(ddev);
-
-	platform_set_drvdata(pdev, ddev);
-
-	ret = atmel_hlcdc_find_output_components(&pdev->dev, &match);
-	if (ret)
-		goto err_unref;
-
-	if (!match) {
-		ret = atmel_hlcdc_init(ddev);
-		if (!ret)
-			dev_info(ddev->dev,
-				 "DRM device successfully registered");
-	} else {
-		ret = component_master_add_with_match(&pdev->dev,
-						&atmel_hlcdc_output_master_ops,
-						match);
-	}
-
-	if (ret)
-		goto err_unref;
-
-	return 0;
-
 err_unref:
 	drm_dev_unref(ddev);
 
@@ -845,12 +551,9 @@ static int atmel_hlcdc_dc_drm_remove(struct platform_device *pdev)
 {
 	struct drm_device *ddev = platform_get_drvdata(pdev);
 
-	component_master_del(&pdev->dev, &atmel_hlcdc_output_master_ops);
-
-	if (ddev->dev_private)
-		atmel_hlcdc_cleanup(ddev);
-
-	drm_mode_config_cleanup(ddev);
+	atmel_hlcdc_dc_connector_unplug_all(ddev);
+	drm_dev_unregister(ddev);
+	atmel_hlcdc_dc_unload(ddev);
 	drm_dev_unref(ddev);
 
 	return 0;

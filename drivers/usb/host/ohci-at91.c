@@ -24,11 +24,7 @@
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
 
-#include <mach/hardware.h>
 #include <asm/gpio.h>
-
-#include <mach/cpu.h>
-
 
 #include "ohci.h"
 
@@ -360,11 +356,13 @@ static int ohci_at91_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 		 */
 
 		desc->wHubCharacteristics &= ~cpu_to_le16(HUB_CHAR_LPSM);
-		desc->wHubCharacteristics |= cpu_to_le16(0x0001);
+		desc->wHubCharacteristics |=
+			cpu_to_le16(HUB_CHAR_INDV_PORT_LPSM);
 
 		if (pdata->overcurrent_supported) {
 			desc->wHubCharacteristics &= ~cpu_to_le16(HUB_CHAR_OCPM);
-			desc->wHubCharacteristics |=  cpu_to_le16(0x0008|0x0001);
+			desc->wHubCharacteristics |=
+				cpu_to_le16(HUB_CHAR_INDV_PORT_OCPM);
 		}
 
 		dev_dbg(hcd->self.controller, "wHubCharacteristics after 0x%04x\n",
@@ -674,7 +672,6 @@ static struct platform_driver ohci_hcd_at91_driver = {
 	.shutdown	= usb_hcd_platform_shutdown,
 	.driver		= {
 		.name	= "at91_ohci",
-		.owner	= THIS_MODULE,
 		.pm	= &ohci_hcd_at91_pm_ops,
 		.of_match_table	= of_match_ptr(at91_ohci_dt_ids),
 	},

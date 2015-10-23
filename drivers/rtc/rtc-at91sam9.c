@@ -23,8 +23,8 @@
 #include <linux/io.h>
 #include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
-#include <linux/clk.h>
 #include <linux/suspend.h>
+#include <linux/clk.h>
 
 /*
  * This driver uses two configurable hardware resources that live in the
@@ -348,7 +348,7 @@ static const struct rtc_class_ops at91_rtc_ops = {
 	.alarm_irq_enable = at91_rtc_alarm_irq_enable,
 };
 
-static struct regmap_config gpbr_regmap_config = {
+static const struct regmap_config gpbr_regmap_config = {
 	.reg_bits = 32,
 	.val_bits = 32,
 	.reg_stride = 4,
@@ -574,7 +574,6 @@ static struct platform_driver at91_rtc_driver = {
 	.shutdown	= at91_rtc_shutdown,
 	.driver		= {
 		.name	= "rtc-at91sam9",
-		.owner	= THIS_MODULE,
 		.pm	= &at91_rtc_pm_ops,
 		.of_match_table = of_match_ptr(at91_rtc_dt_ids),
 	},

@@ -1,5 +1,5 @@
 /*
- * Atmel AT91 SAM9 & SAMA5 SoCs reset code
+ * Atmel AT91 SAM9 SoCs reset code
  *
  * Copyright (C) 2007 Atmel Corporation.
  * Copyright (C) BitBox Ltd 2010
@@ -16,8 +16,6 @@
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
-
-#include <asm/system_misc.h>
 
 #include <soc/at91/at91sam9_ddrsdr.h>
 #include <soc/at91/at91sam9_sdramc.h>
@@ -54,7 +52,8 @@ static void __iomem *at91_ramc_base[2], *at91_rstc_base;
 * reset register it can be left driving the data bus and
 * killing the chance of a subsequent boot from NAND
 */
-static void at91sam9260_restart(enum reboot_mode mode, const char *cmd)
+static int at91sam9260_restart(struct notifier_block *this, unsigned long mode,
+			       void *cmd)
 {
 	asm volatile(
 		/* Align to cache lines */
@@ -74,11 +73,14 @@ static void at91sam9260_restart(enum reboot_mode mode, const char *cmd)
 		: "r" (at91_ramc_base[0]),
 		  "r" (at91_rstc_base),
 		  "r" (1),
-		  "r" (AT91_SDRAMC_LPCB_POWER_DOWN),
-		  "r" (AT91_RSTC_KEY | AT91_RSTC_PERRST | AT91_RSTC_PROCRST));
+		  "r" cpu_to_le32(AT91_SDRAMC_LPCB_POWER_DOWN),
+		  "r" cpu_to_le32(AT91_RSTC_KEY | AT91_RSTC_PERRST | AT91_RSTC_PROCRST));
+
+	return NOTIFY_DONE;
 }
 
-static void at91sam9g45_restart(enum reboot_mode mode, const char *cmd)
+static int at91sam9g45_restart(struct notifier_block *this, unsigned long mode,
+			       void *cmd)
 {
 	asm volatile(
 		/*
@@ -114,15 +116,11 @@ static void at91sam9g45_restart(enum reboot_mode mode, const char *cmd)
 		  "r" (at91_ramc_base[1]),
 		  "r" (at91_rstc_base),
 		  "r" (1),
-		  "r" (AT91_DDRSDRC_LPCB_POWER_DOWN),
-		  "r" (AT91_RSTC_KEY | AT91_RSTC_PERRST | AT91_RSTC_PROCRST)
+		  "r" cpu_to_le32(AT91_DDRSDRC_LPCB_POWER_DOWN),
+		  "r" cpu_to_le32(AT91_RSTC_KEY | AT91_RSTC_PERRST | AT91_RSTC_PROCRST)
 		: "r0");
-}
 
-static void sama5d3_restart(enum reboot_mode mode, const char *cmd)
-{
-	writel(AT91_RSTC_KEY | AT91_RSTC_PERRST | AT91_RSTC_PROCRST,
-				at91_rstc_base);
+	return NOTIFY_DONE;
 }
 
 static void __init at91_reset_status(struct platform_device *pdev)
@@ -154,17 +152,21 @@ static void __init at91_reset_status(struct platform_device *pdev)
 	pr_info("AT91: Starting after %s\n", reason);
 }
 
-static struct of_device_id at91_ramc_of_match[] = {
+static const struct of_device_id at91_ramc_of_match[] = {
 	{ .compatible = "atmel,at91sam9260-sdramc", },
 	{ .compatible = "atmel,at91sam9g45-ddramc", },
+	{ .compatible = "atmel,sama5d3-ddramc", },
 	{ /* sentinel */ }
 };
 
-static struct of_device_id at91_reset_of_match[] = {
+static const struct of_device_id at91_reset_of_match[] = {
 	{ .compatible = "atmel,at91sam9260-rstc", .data = at91sam9260_restart },
 	{ .compatible = "atmel,at91sam9g45-rstc", .data = at91sam9g45_restart },
-	{ .compatible = "atmel,sama5d3-rstc", .data = sama5d3_restart },
 	{ /* sentinel */ }
+};
+
+static struct notifier_block at91_restart_nb = {
+	.priority = 192,
 };
 
 static int at91_reset_of_probe(struct platform_device *pdev)
@@ -179,13 +181,6 @@ static int at91_reset_of_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	match = of_match_node(at91_reset_of_match, pdev->dev.of_node);
-	arm_pm_restart = match->data;
-
-	/* as sama5d3 don't need to shutdown the ddr controller, just return. */
-	if (match->data == sama5d3_restart)
-		return 0;
-
 	for_each_matching_node(np, at91_ramc_of_match) {
 		at91_ramc_base[idx] = of_iomap(np, 0);
 		if (!at91_ramc_base[idx]) {
@@ -195,7 +190,9 @@ static int at91_reset_of_probe(struct platform_device *pdev)
 		idx++;
 	}
 
-	return 0;
+	match = of_match_node(at91_reset_of_match, pdev->dev.of_node);
+	at91_restart_nb.notifier_call = match->data;
+	return register_restart_handler(&at91_restart_nb);
 }
 
 static int at91_reset_platform_probe(struct platform_device *pdev)
@@ -215,17 +212,18 @@ static int at91_reset_platform_probe(struct platform_device *pdev)
 		res = platform_get_resource(pdev, IORESOURCE_MEM, idx + 1 );
 		at91_ramc_base[idx] = devm_ioremap(&pdev->dev, res->start,
 						   resource_size(res));
-		if (IS_ERR(at91_ramc_base[idx])) {
+		if (!at91_ramc_base[idx]) {
 			dev_err(&pdev->dev, "Could not map ram controller address\n");
-			return PTR_ERR(at91_ramc_base[idx]);
+			return -ENOMEM;
 		}
 	}
 
 	match = platform_get_device_id(pdev);
-	arm_pm_restart = (void (*)(enum reboot_mode, const char*))
-		match->driver_data;
+	at91_restart_nb.notifier_call =
+		(int (*)(struct notifier_block *,
+			 unsigned long, void *)) match->driver_data;
 
-	return 0;
+	return register_restart_handler(&at91_restart_nb);
 }
 
 static int at91_reset_probe(struct platform_device *pdev)

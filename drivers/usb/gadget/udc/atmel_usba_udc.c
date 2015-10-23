@@ -29,8 +29,6 @@
 #include <asm/gpio.h>
 
 #include "atmel_usba_udc.h"
-#define USBA_VBUS_IRQFLAGS (IRQF_ONESHOT \
-			   | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING)
 
 #ifdef CONFIG_USB_GADGET_DEBUG_FS
 #include <linux/debugfs.h>
@@ -154,7 +152,7 @@ static int regs_dbg_open(struct inode *inode, struct file *file)
 
 	spin_lock_irq(&udc->lock);
 	for (i = 0; i < inode->i_size / 4; i++)
-		data[i] = __raw_readl(udc->regs + i * 4);
+		data[i] = usba_io_readl(udc->regs + i * 4);
 	spin_unlock_irq(&udc->lock);
 
 	file->private_data = data;
@@ -267,14 +265,17 @@ static void usba_init_debugfs(struct usba_udc *udc)
 		goto err_root;
 	udc->debugfs_root = root;
 
-	regs = debugfs_create_file("regs", 0400, root, udc, &regs_dbg_fops);
-	if (!regs)
-		goto err_regs;
-
 	regs_resource = platform_get_resource(udc->pdev, IORESOURCE_MEM,
 				CTRL_IOMEM_ID);
-	regs->d_inode->i_size = resource_size(regs_resource);
-	udc->debugfs_regs = regs;
+
+	if (regs_resource) {
+		regs = debugfs_create_file_size("regs", 0400, root, udc,
+						&regs_dbg_fops,
+						resource_size(regs_resource));
+		if (!regs)
+			goto err_regs;
+		udc->debugfs_regs = regs;
+	}
 
 	usba_ep_init_debugfs(udc, to_usba_ep(udc->gadget.ep0));
 
@@ -991,6 +992,7 @@ usba_udc_set_selfpowered(struct usb_gadget *gadget, int is_selfpowered)
 	struct usba_udc *udc = to_usba_udc(gadget);
 	unsigned long flags;
 
+	gadget->is_selfpowered = (is_selfpowered != 0);
 	spin_lock_irqsave(&udc->lock, flags);
 	if (is_selfpowered)
 		udc->devstatus |= 1 << USB_DEVICE_SELF_POWERED;
@@ -1003,8 +1005,8 @@ usba_udc_set_selfpowered(struct usb_gadget *gadget, int is_selfpowered)
 
 static int atmel_usba_start(struct usb_gadget *gadget,
 		struct usb_gadget_driver *driver);
-static int atmel_usba_stop(struct usb_gadget *gadget,
-		struct usb_gadget_driver *driver);
+static int atmel_usba_stop(struct usb_gadget *gadget);
+
 static const struct usb_gadget_ops usba_udc_ops = {
 	.get_frame		= usba_udc_get_frame,
 	.wakeup			= usba_udc_wakeup,
@@ -1247,7 +1249,7 @@ static int handle_ep0_setup(struct usba_udc *udc, struct usba_ep *ep,
 		if (crq->wLength != cpu_to_le16(sizeof(status)))
 			goto stall;
 		ep->state = DATA_STAGE_IN;
-		__raw_writew(status, ep->fifo);
+		usba_io_writew(status, ep->fifo);
 		usba_ep_writel(ep, SET_STA, USBA_TX_PK_RDY);
 		break;
 	}
@@ -1697,11 +1699,10 @@ static irqreturn_t usba_udc_irq(int irq, void *devid)
 		generate_bias_pulse(udc);
 		reset_all_endpoints(udc);
 
-		if (udc->gadget.speed != USB_SPEED_UNKNOWN
-				&& udc->driver && udc->driver->disconnect) {
+		if (udc->gadget.speed != USB_SPEED_UNKNOWN && udc->driver) {
 			udc->gadget.speed = USB_SPEED_UNKNOWN;
 			spin_unlock(&udc->lock);
-			udc->driver->disconnect(&udc->gadget);
+			usb_gadget_udc_reset(&udc->gadget, udc->driver);
 			spin_lock(&udc->lock);
 		}
 
@@ -1838,14 +1839,11 @@ static int atmel_usba_start(struct usb_gadget *gadget,
 	unsigned long flags;
 
 	spin_lock_irqsave(&udc->lock, flags);
-
 	udc->devstatus = 1 << USB_DEVICE_SELF_POWERED;
 	udc->driver = driver;
 	spin_unlock_irqrestore(&udc->lock, flags);
 
 	mutex_lock(&udc->vbus_mutex);
-
-	DBG(DBG_GADGET, "registered driver `%s'\n", driver->driver.name);
 
 	if (gpio_is_valid(udc->vbus_pin))
 		enable_irq(gpio_to_irq(udc->vbus_pin));
@@ -1874,8 +1872,7 @@ err:
 	return ret;
 }
 
-static int atmel_usba_stop(struct usb_gadget *gadget,
-		struct usb_gadget_driver *driver)
+static int atmel_usba_stop(struct usb_gadget *gadget)
 {
 	struct usba_udc *udc = container_of(gadget, struct usba_udc, gadget);
 
@@ -1883,8 +1880,6 @@ static int atmel_usba_stop(struct usb_gadget *gadget,
 		disable_irq(gpio_to_irq(udc->vbus_pin));
 
 	usba_stop(udc);
-
-	DBG(DBG_GADGET, "unregistered driver `%s'\n", udc->driver->driver.name);
 
 	udc->driver = NULL;
 
@@ -2165,7 +2160,7 @@ static int usba_udc_probe(struct platform_device *pdev)
 					IRQ_NOAUTOEN);
 			ret = devm_request_threaded_irq(&pdev->dev,
 					gpio_to_irq(udc->vbus_pin), NULL,
-					usba_vbus_irq_thread, USBA_VBUS_IRQFLAGS,
+					usba_vbus_irq_thread, IRQF_ONESHOT,
 					"atmel_usba_udc", udc);
 			if (ret) {
 				udc->vbus_pin = -ENODEV;
@@ -2191,7 +2186,7 @@ static int usba_udc_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __exit usba_udc_remove(struct platform_device *pdev)
+static int usba_udc_remove(struct platform_device *pdev)
 {
 	struct usba_udc *udc;
 	int i;
@@ -2263,10 +2258,9 @@ static int usba_udc_resume(struct device *dev)
 static SIMPLE_DEV_PM_OPS(usba_udc_pm_ops, usba_udc_suspend, usba_udc_resume);
 
 static struct platform_driver udc_driver = {
-	.remove		= __exit_p(usba_udc_remove),
+	.remove		= usba_udc_remove,
 	.driver		= {
 		.name		= "atmel_usba_udc",
-		.owner		= THIS_MODULE,
 		.pm		= &usba_udc_pm_ops,
 		.of_match_table	= of_match_ptr(atmel_udc_dt_ids),
 	},

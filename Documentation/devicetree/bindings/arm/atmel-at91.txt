@@ -24,6 +24,7 @@ compatible: must be one of:
     o "atmel,at91sam9g45"
     o "atmel,at91sam9n12"
     o "atmel,at91sam9rl"
+    o "atmel,at91sam9xe"
  * "atmel,sama5" for SoCs using a Cortex-A5, shall be extended with the specific
    SoC family:
     o "atmel,sama5d3" shall be extended with the specific SoC compatible:
@@ -45,10 +46,12 @@ PIT Timer required properties:
   shared across all System Controller members.
 
 System Timer (ST) required properties:
-- compatible: Should be "atmel,at91rm9200-st"
+- compatible: Should be "atmel,at91rm9200-st", "syscon", "simple-mfd"
 - reg: Should contain registers location and length
 - interrupts: Should contain interrupt for the ST which is the IRQ line
   shared across all System Controller members.
+Its subnodes can be:
+- watchdog: compatible should be "atmel,at91rm9200-wdt"
 
 TC/TCLIB Timer required properties:
 - compatible: Should be "atmel,<chip>-tcb".
@@ -132,59 +135,23 @@ optional at91sam9x5 properties:
 
 Example:
 
-	shdwc@fffffd10 {
-		compatible = "atmel,at91sam9260-shdwc";
-		reg = <0xfffffd10 0x10>;
+	rstc@fffffd00 {
+		compatible = "atmel,at91sam9260-rstc";
+		reg = <0xfffffd00 0x10>;
 	};
 
-SHDWC Shutdown Controller (Alternative)
+Special Function Registers (SFR)
 
-1) shdwc node
+Special Function Registers (SFR) manage specific aspects of the integrated
+memory, bridge implementations, processor and other functionality not controlled
+elsewhere.
 
 required properties:
-- compatible: should be "atmel,sama5d2-shdwc".
-- reg: should contain registers location and length
-- #address-cells: should be one. The cell is the wake-up input index.
-- #size-cells: should be zero.
+- compatible: Should be "atmel,<chip>-sfr", "syscon".
+  <chip> can be "sama5d3" or "sama5d4".
+- reg: Should contain registers location and length
 
-optional properties:
-
-- atmel,wakeup-debouncer: minimum wake-up inputs debouncer period in
-  micro-seconds. It's usually a board-related property.
-- atmel,wakeup-rtc-timer: boolean to enable Real-Time Clock wake-up.
-
-The node contains child nodes for each wake-up input that the platform uses.
-
-2) input nodes
-
-Wake-up input nodes are usually described in the "board" part of the Device
-Tree. Note also that input 0 is linked to the wake-up pin and is frequently
-used.
-
-Required properties:
-- reg: should contain the wake-up input index [0 - 15].
-
-Optional properties:
-- atmel,wakeup-type: string, operation mode of the input described by the child
-  node. Supported values are: "high" or "low".
-
-Example:
-
-On the SoC side:
-	shdwc@f8048010 {
-		compatible = "atmel,sama5d2-shdwc";
-		reg = <0xf8048010 0x10>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		atmel,wakeup-rtc-timer;
-	};
-
-On the board side:
-	shdwc@f8048010 {
-		atmel,shdwc-debouncer = <976>;
-
-		input@0 {
-			reg = <0>;
-			atmel,wakeup-type = "low";
-		};
+	sfr@f0038000 {
+		compatible = "atmel,sama5d3-sfr", "syscon";
+		reg = <0xf0038000 0x60>;
 	};

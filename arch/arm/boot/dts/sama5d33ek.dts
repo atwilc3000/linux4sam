@@ -9,9 +9,6 @@
 /dts-v1/;
 #include "sama5d33.dtsi"
 #include "sama5d3xmb.dtsi"
-#include "sama5d3xmb_audio.dtsi"
-/* #include "sama5d3xmb_hdmi.dtsi" */		/* need sil902x driver */
-/* #include "sama5d3xmb_isi_sensors.dtsi" */	/* Conflict with i2c0 & led d3 */
 #include "sama5d3xdm.dtsi"
 
 / {
@@ -39,13 +36,6 @@
 			macb0: ethernet@f0028000 {
 				status = "okay";
 			};
-		};
-	};
-
-	leds {
-		d3 {
-			label = "d3";
-			gpios = <&pioE 24 GPIO_ACTIVE_HIGH>;
 		};
 	};
 

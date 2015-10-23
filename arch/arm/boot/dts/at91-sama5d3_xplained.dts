@@ -10,7 +10,7 @@
 #include "sama5d36.dtsi"
 
 / {
-	model = "Atmel SAMA5D3 Xplained";
+	model = "SAMA5D3 Xplained";
 	compatible = "atmel,sama5d3-xplained", "atmel,sama5d3", "atmel,sama5";
 
 	chosen {
@@ -63,7 +63,7 @@
 				pmic: act8865@5b {
 					compatible = "active-semi,act8865";
 					reg = <0x5b>;
-					status = "disabled";
+					status = "okay";
 
 					regulators {
 						vcc_1v8_reg: DCDC_REG1 {
@@ -167,7 +167,13 @@
 
 			macb1: ethernet@f802c000 {
 				phy-mode = "rmii";
+				#address-cells = <1>;
+				#size-cells = <0>;
 				status = "okay";
+
+				ethernet-phy@1 {
+					reg = <0x1>;
+				};
 			};
 
 			dbgu: serial@ffffee00 {
@@ -188,6 +194,11 @@
 							<AT91_PIOA 19 AT91_PERIPH_B AT91_PINCTRL_PULL_UP>;
 					};
 
+					pinctrl_key_gpio: key_gpio_0 {
+						atmel,pins =
+							<AT91_PIOE 29 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;
+					};
+
 					pinctrl_mmc0_cd: mmc0_cd {
 						atmel,pins =
 							<AT91_PIOE 0 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;
@@ -201,11 +212,6 @@
 					pinctrl_usba_vbus: usba_vbus {
 						atmel,pins =
 							<AT91_PIOE 9 AT91_PERIPH_GPIO AT91_PINCTRL_DEGLITCH>;	/* PE9, conflicts with A9 */
-					};
-
-					pinctrl_key_gpio: key_gpio_0 {
-						atmel,pins =
-							<AT91_PIOE 29 AT91_PERIPH_GPIO AT91_PINCTRL_PULL_UP_DEGLITCH>;
 					};
 				};
 			};

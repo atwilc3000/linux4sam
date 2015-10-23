@@ -50,7 +50,7 @@
 	compatible = "atmel,sama5d4-xplained", "atmel,sama5d4", "atmel,sama5";
 
 	chosen {
-		bootargs = "console=ttyS0,115200";
+		bootargs = "console=ttyS0,115200 ignore_loglevel earlyprintk";
 	};
 
 	memory {
@@ -119,11 +119,6 @@
 			};
 
 			usart4: serial@fc010000 {
-				status = "okay";
-			};
-
-			spi1: spi@fc018000 {
-				cs-gpios = <&pioB 21 0>;
 				status = "okay";
 			};
 
@@ -215,8 +210,6 @@
 
 	gpio_keys {
 		compatible = "gpio-keys";
-		#address-cells = <1>;
-		#size-cells = <0>;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_key_gpio>;
@@ -236,7 +229,7 @@
 		d8 {
 			label = "d8";
 			gpios = <&pioD 30 GPIO_ACTIVE_HIGH>;
-			default-state = "on";
+			status = "disabled";
 		};
 
 		d10 {

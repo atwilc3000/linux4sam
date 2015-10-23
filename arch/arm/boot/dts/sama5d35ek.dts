@@ -9,8 +9,6 @@
 /dts-v1/;
 #include "sama5d35.dtsi"
 #include "sama5d3xmb.dtsi"
-#include "sama5d3xmb_audio.dtsi"
-#include "sama5d3xmb_isi_sensors.dtsi"	/* Conflict with i2c0 & led d3 */
 
 / {
 	model = "Atmel SAMA5D35-EK";
@@ -22,16 +20,8 @@
 				status = "okay";
 			};
 
-			ssc0: ssc@f0008000 {
-				status = "okay";
-			};
-
 			can0: can@f000c000 {
 				status = "okay";
-			};
-
-			i2c0: i2c@f0014000 {
-				status = "disabled";
 			};
 
 			i2c1: i2c@f0018000 {
@@ -42,17 +32,18 @@
 				status = "okay";
 			};
 
+			isi: isi@f0034000 {
+				status = "okay";
+			};
+
 			macb1: ethernet@f802c000 {
 				status = "okay";
 			};
 		};
 	};
 
-	/* Conflict with LCD pins */
 	gpio_keys {
 		compatible = "gpio-keys";
-		#address-cells = <1>;
-		#size-cells = <0>;
 
 		pb_user1 {
 			label = "pb_user1";
@@ -60,17 +51,5 @@
 			linux,code = <0x100>;
 			gpio-key,wakeup;
 		};
-	};
-
-	leds {
-		d3 {
-			label = "d3";
-			gpios = <&pioE 24 GPIO_ACTIVE_HIGH>;
-			status = "disabled";
-		};
-	};
-
-	sound {
-		status = "okay";
 	};
 };

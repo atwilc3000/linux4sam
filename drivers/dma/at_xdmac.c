@@ -355,17 +355,16 @@ static void at_xdmac_start_xfer(struct at_xdmac_chan *atchan,
 	 * descriptor view 2 since some fields of the configuration register
 	 * depend on transfer size and src/dest addresses.
 	 */
-	if (at_xdmac_chan_is_cyclic(atchan))
+	if (at_xdmac_chan_is_cyclic(atchan)) {
 		reg = AT_XDMAC_CNDC_NDVIEW_NDV1;
-	else
+		at_xdmac_chan_write(atchan, AT_XDMAC_CC, first->lld.mbr_cfg);
+	} else {
+		/*
+		 * No need to write AT_XDMAC_CC reg, it will be done when the
+		 * descriptor is fecthed.
+		 */
 		reg = AT_XDMAC_CNDC_NDVIEW_NDV2;
-	/*
-	 * Even if the register will be updated from the configuration in the
-	 * descriptor when using view 2 or higher, the PROT bit won't be set
-	 * properly. This bit can be modified only by using the channel
-	 * configuration register.
-	 */
-	at_xdmac_chan_write(atchan, AT_XDMAC_CC, first->lld.mbr_cfg);
+	}
 
 	reg |= AT_XDMAC_CNDC_NDDUP
 	       | AT_XDMAC_CNDC_NDSUP
@@ -592,12 +591,12 @@ at_xdmac_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 		       unsigned int sg_len, enum dma_transfer_direction direction,
 		       unsigned long flags, void *context)
 {
-	struct at_xdmac_chan		*atchan = to_at_xdmac_chan(chan);
-	struct at_xdmac_desc		*first = NULL, *prev = NULL;
-	struct scatterlist		*sg;
-	int				i;
-	unsigned int			xfer_size = 0;
-	unsigned long			irqflags;
+	struct at_xdmac_chan	*atchan = to_at_xdmac_chan(chan);
+	struct at_xdmac_desc	*first = NULL, *prev = NULL;
+	struct scatterlist	*sg;
+	int			i;
+	unsigned int		xfer_size = 0;
+	unsigned long		irqflags;
 	struct dma_async_tx_descriptor	*ret = NULL;
 
 	if (!sgl)
@@ -649,17 +648,16 @@ at_xdmac_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 			desc->lld.mbr_sa = mem;
 			desc->lld.mbr_da = atchan->sconfig.dst_addr;
 		}
-		dwidth = at_xdmac_get_dwidth(atchan->cfg);
+		desc->lld.mbr_cfg = atchan->cfg;
+		dwidth = at_xdmac_get_dwidth(desc->lld.mbr_cfg);
 		fixed_dwidth = IS_ALIGNED(len, 1 << dwidth)
-			       ? dwidth
+			       ? at_xdmac_get_dwidth(desc->lld.mbr_cfg)
 			       : AT_XDMAC_CC_DWIDTH_BYTE;
 		desc->lld.mbr_ubc = AT_XDMAC_MBR_UBC_NDV2			/* next descriptor view */
 			| AT_XDMAC_MBR_UBC_NDEN					/* next descriptor dst parameter update */
 			| AT_XDMAC_MBR_UBC_NSEN					/* next descriptor src parameter update */
 			| (i == sg_len - 1 ? 0 : AT_XDMAC_MBR_UBC_NDE)		/* descriptor fetch */
 			| (len >> fixed_dwidth);				/* microblock length */
-		desc->lld.mbr_cfg = (atchan->cfg & ~AT_XDMAC_CC_DWIDTH_MASK) |
-				    AT_XDMAC_CC_DWIDTH(fixed_dwidth);
 		dev_dbg(chan2dev(chan),
 			 "%s: lld: mbr_sa=%pad, mbr_da=%pad, mbr_ubc=0x%08x\n",
 			 __func__, &desc->lld.mbr_sa, &desc->lld.mbr_da, desc->lld.mbr_ubc);
@@ -704,7 +702,6 @@ at_xdmac_prep_dma_cyclic(struct dma_chan *chan, dma_addr_t buf_addr,
 	unsigned int		periods = buf_len / period_len;
 	int			i;
 	unsigned long		irqflags;
-	u32			cfg;
 
 	dev_dbg(chan2dev(chan), "%s: buf_addr=%pad, buf_len=%zd, period_len=%zd, dir=%s, flags=0x%lx\n",
 		__func__, &buf_addr, buf_len, period_len,
@@ -1569,7 +1566,6 @@ static struct platform_driver at_xdmac_driver = {
 	.remove		= at_xdmac_remove,
 	.driver = {
 		.name		= "at_xdmac",
-		.owner		= THIS_MODULE,
 		.of_match_table	= of_match_ptr(atmel_xdmac_dt_ids),
 		.pm		= &atmel_xdmac_dev_pm_ops,
 	}
