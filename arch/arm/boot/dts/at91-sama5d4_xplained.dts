@@ -44,10 +44,11 @@
 			spi0: spi@f8010000 {
 				cs-gpios = <&pioC 3 0>, <0>, <0>, <0>;
 				status = "okay";
-				m25p80@0 {
-					compatible = "atmel,at25df321a";
-					spi-max-frequency = <50000000>;
+				wilc_spi@0 {
+					compatible = "atmel,wilc_spi";
+					spi-max-frequency = <6000000>;
 					reg = <0>;
+					status = "okay";
 				};
 			};
 
@@ -58,12 +59,12 @@
 
 			mmc1: mmc@fc000000 {
 				pinctrl-names = "default";
-				pinctrl-0 = <&pinctrl_mmc1_clk_cmd_dat0 &pinctrl_mmc1_dat1_3 &pinctrl_mmc1_cd>;
+				pinctrl-0 = <&pinctrl_mmc1_clk_cmd_dat0 &pinctrl_mmc1_dat1_3>;
+				non-removable;
 				status = "okay";
 				slot@0 {
 					reg = <0>;
 					bus-width = <4>;
-					cd-gpios = <&pioE 3 0>;
 				};
 			};
 

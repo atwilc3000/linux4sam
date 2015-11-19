@@ -680,7 +680,6 @@ void prepare_inp(struct wilc_wlan_inp *nwi)
 	nwi->io_func.io_deinit = linux_sdio_deinit;
 	nwi->io_func.u.sdio.sdio_cmd52 = linux_sdio_cmd52;
 	nwi->io_func.u.sdio.sdio_cmd53 = linux_sdio_cmd53;
-	nwi->io_func.u.sdio.sdio_set_max_speed = linux_sdio_set_max_speed;
 #else
 	nwi->io_func.io_type = HIF_SPI;
 	nwi->io_func.io_init = linux_spi_init;
@@ -749,7 +748,11 @@ void chip_wakeup(int source)
 		while (((clk_status_reg_val & u32ClkStsBit) == 0) &&
 		       (((++trials) % 3) == 0)) {
 			/* Wait for the chip to stabilize*/
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,35)
 			usleep_range(1000, 1000);
+#else
+			udelay(1000);
+#endif
 
 			/*
 			 * Make sure chip is awake. This is an extra step that can be removed
@@ -795,26 +798,42 @@ void release_bus(enum BUS_RELEASE release, int source)
 }
 EXPORT_SYMBOL(release_bus);
 
- #if defined(PLAT_SAMA5D4)
- extern void atmci_rescan_card(unsigned id,unsigned insert);
- #define WILC_SDIO_CARD_ID	0
+#if defined(PLAT_SAMA5D4)
+void wifi_pm_power(int power)
+{
+	PRINT_D(INIT_DBG, "wifi_pm_power power : %d \n", power);
+	if (gpio_request(GPIO_NUM_CHIP_EN, "CHIP_EN") == 0 && gpio_request(GPIO_NUM_RESET, "RESET") == 0)
+	{
+		gpio_direction_output(GPIO_NUM_CHIP_EN, 0);
+		gpio_direction_output(GPIO_NUM_RESET, 0);
+		if (power)
+		{
+			gpio_set_value(GPIO_NUM_CHIP_EN , 1);
+			mdelay(5);
+			gpio_set_value(GPIO_NUM_RESET , 1);
+		}
+		else
+		{
+			gpio_set_value(GPIO_NUM_RESET , 0);
+			gpio_set_value(GPIO_NUM_CHIP_EN , 0);
+		}
+		gpio_free(GPIO_NUM_CHIP_EN);
+		gpio_free(GPIO_NUM_RESET);
+	}
+}
+#endif
+
+
+#if defined(PLAT_SAMA5D4)
+ #define _linux_wlan_device_detection()		{}
+ #define _linux_wlan_device_removal()		{}
+ #define _linux_wlan_device_power_on()		wifi_pm_power(1)
+ #define _linux_wlan_device_power_off()		wifi_pm_power(0)
+#else
  #define _linux_wlan_device_detection()		{}
  #define _linux_wlan_device_removal()		{}
  #define _linux_wlan_device_power_on()		{}
- #define _linux_wlan_device_power_off()		{} 
- #elif defined(PANDA_BOARD)
- #define _linux_wlan_device_detection()		mmc_start_host(mmc_host_backup[2])
- #define _linux_wlan_device_removal()		mmc_stop_host(mmc_host_backup[2])
- #define _linux_wlan_device_power_on()		{}
- #define _linux_wlan_device_power_off()		{} 
- #elif defined(PLAT_ALLWINNER_A31)
- extern void sw_mci_rescan_card(unsigned id, unsigned insert);
- extern void wifi_pm_power(int on);
- #define ATWILC_SDIO_CARD_ID	1
- #define _linux_wlan_device_power_on()          wifi_pm_power(1)
- #define _linux_wlan_device_power_off()         wifi_pm_power(0)
- #define _linux_wlan_device_detection()         sw_mci_rescan_card(ATWILC_SDIO_CARD_ID,1)
- #define _linux_wlan_device_removal()           sw_mci_rescan_card(ATWILC_SDIO_CARD_ID,0)
+ #define _linux_wlan_device_power_off()		{}
 #endif
 
 static int linux_wlan_device_power(int on_off)
@@ -868,7 +887,7 @@ int at_pwr_power_up(int source)
 		PRINT_WRN(PWRDEV_DBG, "Device already up. request source is %s\n",
 			 (source == PWR_DEV_SRC_WIFI ? "Wifi" : "BT"));
 	} else {
-		printk("PLAT_ALLWINNER_A31 POWER UP\n");
+		printk("POWER UP\n");
 		linux_wlan_device_power(0);
 		linux_wlan_device_power(1);
 		msleep(100);

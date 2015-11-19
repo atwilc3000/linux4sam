@@ -99,6 +99,8 @@ struct linux_wlan *g_linux_wlan = NULL;
 struct wilc_wlan_oup *gpstrWlanOps;
 bool bEnablePS = true;
 
+extern struct WILC_WFIDrv *wfidrv_list[NUM_CONCURRENT_IFC + 1]; 
+	
 volatile int gbCrashRecover = 0;
 volatile int g_bWaitForRecovery = 0;
 
@@ -532,7 +534,7 @@ static int init_irq(struct linux_wlan *p_nic)
 	if ((gpio_request(GPIO_NUM, "WILC_INTR") == 0) &&
 	    (gpio_direction_input(GPIO_NUM) == 0)) {
 		gpio_export(GPIO_NUM, 1);
-		nic->dev_irq_num = OMAP_GPIO_IRQ(GPIO_NUM);
+		nic->dev_irq_num = gpio_to_irq(GPIO_NUM);
 		irq_set_irq_type(nic->dev_irq_num, IRQ_TYPE_LEVEL_LOW);
 	} else {
 		ret = -1;
@@ -1013,7 +1015,7 @@ static int linux_wlan_init_test_config(struct net_device *dev, struct linux_wlan
 	}
 
 	*(int *)c_val = (unsigned int)nic->iftype;
-
+	
 	if (!g_linux_wlan->oup.wlan_cfg_set(1, WID_SET_OPERATION_MODE, c_val,
 					    4, 0, 0))
 		goto _fail_;
@@ -1271,6 +1273,7 @@ static int linux_wlan_init_test_config(struct net_device *dev, struct linux_wlan
 	}
 #endif /* WILC_BT_COEXISTENCE */
 	c_val[0] = 1; /* Enable N with immediate block ack. */
+	/* changed from zero to 1 */
 	if (!g_linux_wlan->oup.wlan_cfg_set(0, WID_11N_IMMEDIATE_BA_ENABLED, c_val, 1, 1,0))
 		goto _fail_;
 	return 0;
@@ -1742,9 +1745,6 @@ int mac_open(struct net_device *ndev)
 	u8 mac_add[ETH_ALEN] = {0};
 	unsigned char mac_address[NUM_CONCURRENT_IFC][ETH_ALEN] = {{0x00, 0x80, 0xC2, 0x5E, 0xa2, 0x01}	/*IFC_0 mac address*/
 															, {0x00, 0x80, 0xC2, 0x5E, 0xa2, 0x02}};	/*IFC_1 mac address*/
-
-	get_random_bytes(&mac_address[0][5], 1);
-	get_random_bytes(&mac_address[1][5], 1);
 	int ifc;
 	int ret = 0;
 	int i = 0;
@@ -1811,7 +1811,7 @@ int mac_open(struct net_device *ndev)
 		ret = -EINVAL;
 		goto _err_;
 	}
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37))
 	WILC_WFI_frame_register(nic->wilc_netdev->ieee80211_ptr->wiphy,
 				nic->wilc_netdev,
 				nic->g_struct_frame_reg[0].frame_type,
@@ -1820,6 +1820,7 @@ int mac_open(struct net_device *ndev)
 				nic->wilc_netdev,
 				nic->g_struct_frame_reg[1].frame_type,
 				nic->g_struct_frame_reg[1].reg);
+#endif
 	netif_wake_queue(ndev);
 	g_linux_wlan->open_ifcs++;
 	nic->mac_opened = 1;
@@ -2132,7 +2133,7 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 			goto done;
 		}
 
-		if (strnicmp(buff, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
+		if (strncasecmp(buff, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
 			uint32_t mode = *(buff + strlen("BTCOEXMODE") + 1) - '0';
 #ifdef WILC_BT_COEXISTENCE
 			PRINT_D(GENERIC_DBG, "[COEX] [DRV] rcvd IO ctrl << BT-MODE: %d >>\n", mode);
@@ -2158,7 +2159,7 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 
 			PRINT_D(GENERIC_DBG, "IOCTRL priv: %s", buff);
 
-			if (strnicmp(buff, "RSSI", size) == 0) {
+			if (strncasecmp(buff, "RSSI", size) == 0) {
 				s32Error = host_int_get_rssi(priv->hWILCWFIDrv, &(rssi));
 				if (s32Error)
 					PRINT_ER("Failed to send get rssi param's message queue ");
@@ -2173,7 +2174,7 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 					s32Error = -EFAULT;
 					goto done;
 				}
-			} else if (strnicmp(buff, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
+			} else if (strncasecmp(buff, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
 				uint32_t mode = *(buff + strlen("BTCOEXMODE") + 1) - '0';
 #ifdef WILC_BT_COEXISTENCE
 				PRINT_D(GENERIC_DBG, "[COEX] [DRV] rcvd IO ctrl << BT-MODE: %d >>\n", mode);
@@ -2182,11 +2183,11 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd)
 				*/
 
 #endif
-			} else if (strnicmp(buff, "BTCOEXSCAN-START", strlen("BTCOEXSCAN-START")) == 0) {
+			} else if (strncasecmp(buff, "BTCOEXSCAN-START", strlen("BTCOEXSCAN-START")) == 0) {
 #ifdef WILC_BT_COEXISTENCE
 				PRINT_D(GENERIC_DBG, "[COEX] [DRV] rcvd IO ctrl << BTCOEXSCAN-START >>\n");
 #endif
-			} else if (strnicmp(buff, "BTCOEXSCAN-STOP", strlen("BTCOEXSCAN-STOP")) == 0) {
+			} else if (strncasecmp(buff, "BTCOEXSCAN-STOP", strlen("BTCOEXSCAN-STOP")) == 0) {
 #ifdef WILC_BT_COEXISTENCE
 				PRINT_D(GENERIC_DBG, "[COEX] [DRV] rcvd IO ctrl << BTCOEXSCAN-STOP >>\n");
 #endif
@@ -2320,7 +2321,7 @@ void WILC_WFI_mgmt_rx(uint8_t *buff, uint32_t size)
 			return;
 		}
 	}
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
 #ifdef WILC_P2P
 	nic = netdev_priv(g_linux_wlan->strInterfaceInfo[1].wilc_netdev);
 	if ((buff[0] == nic->g_struct_frame_reg[0].frame_type &&
@@ -2328,6 +2329,7 @@ void WILC_WFI_mgmt_rx(uint8_t *buff, uint32_t size)
 	    (buff[0] == nic->g_struct_frame_reg[1].frame_type &&
 	     nic->g_struct_frame_reg[1].reg))
 		WILC_WFI_p2p_rx(g_linux_wlan->strInterfaceInfo[1].wilc_netdev, buff, size);
+#endif
 #endif
 }
 
@@ -2343,6 +2345,11 @@ int wilc_netdev_init(void)
 	g_linux_wlan = kmalloc(sizeof(struct linux_wlan), GFP_ATOMIC);
 	memset(g_linux_wlan, 0, sizeof(struct linux_wlan));
 
+	for(i = 1; i < ARRAY_SIZE(wfidrv_list); i++)
+	{
+		wfidrv_list[i] = NULL;
+	}
+	
 	/*create the common structure*/
 	/*Reset interrupt count debug*/
 	int_rcvdU = 0;
@@ -2415,7 +2422,7 @@ static int __init init_wilc_driver(void)
 {
 	int ret = 0;
 
-	PRINT_D(INIT_DBG, "WILC3000 driver v6\n");
+	PRINT_D(INIT_DBG, "WILC3000 driver v10\n");
 	set_pf_chip_sleep_manually(chip_sleep_manually);
 	set_pf_get_num_conn_ifcs( linux_wlan_get_num_conn_ifcs);
 	set_pf_host_wakeup_notify(wilc_host_wakeup_notify);
