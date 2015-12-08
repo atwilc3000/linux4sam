@@ -84,10 +84,19 @@ enum debug_region{
 #endif
 #define LINUX_TX_SIZE	(64 * 1024)
 
-#if defined(PANDA_BOARD)
-#define MODALIAS	"WILC_SPI"
-#define GPIO_NUM	139
-#endif /* PANDA_BOARD */
+#if defined(PLAT_SAMA5D4)
+#define MODALIAS	"wilc_spi"
+#define GPIO_NUM	46
+#define MIN_SPEED 24000000
+#define GPIO_NUM_RESET	60
+#define GPIO_NUM_CHIP_EN	94
+#endif
+
+#if defined(PLAT_SAMA5D3)
+#define MODALIAS	"wilc_spi"
+#define GPIO_NUM	68
+#define MIN_SPEED 24000000
+#endif
 
 int linux_wlan_get_num_conn_ifcs(void);
 #endif /* LINUX_WLAN_COMMON_H */

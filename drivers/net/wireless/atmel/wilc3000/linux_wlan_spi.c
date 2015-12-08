@@ -23,7 +23,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/cdev.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess>
 #include <linux/device.h>
 #include <linux/spi/spi.h>
 
