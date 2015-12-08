@@ -44,9 +44,6 @@
 #define WILC_MAC_INDICATE_SCAN		0x2
 
 struct tx_complete_data {
-#ifdef WILC_FULLY_HOSTING_AP
-	struct tx_complete_data *next;
-#endif
 	int size;
 	void *buff;
 	uint8_t *pBssid;
@@ -78,10 +75,6 @@ struct wilc_wlan_oup {
 #if defined(WILC_AP_EXTERNAL_MLME) || defined(WILC_P2P)
 	int (*wlan_add_mgmt_to_tx_que)(void *, uint8_t *,
 				       uint32_t, wilc_tx_complete_func_t);
-#ifdef WILC_FULLY_HOSTING_AP
-	int (*wlan_add_data_to_tx_que)(void *, uint8_t *,
-				       uint32_t, wilc_tx_complete_func_t);
-#endif
 #endif
 };
 
@@ -833,7 +826,6 @@ enum WID_E {
 	WID_SUPP_PASSWORD		= 0x3011,
 	WID_SITE_SURVEY_RESULTS		= 0x3012,
 	WID_RX_POWER_LEVEL		= 0x3013,
-	WID_DEL_ALL_RX_BA		= 0x3014,
 	WID_SET_STA_MAC_INACTIVE_TIME	= 0x3017,
 	WID_ADD_WEP_KEY			= 0x3019,
 	WID_REMOVE_WEP_KEY		= 0x301A,

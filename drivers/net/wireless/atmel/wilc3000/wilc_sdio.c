@@ -28,7 +28,6 @@ struct wilc_sdio {
 	uint32_t block_size;
 	int (*sdio_cmd52)(struct sdio_cmd52_t *);
 	int (*sdio_cmd53)(struct sdio_cmd53_t *);
-	int (*sdio_set_max_speed)(void);
 	int nint;
 	/* Max num interrupts allowed in registers 0xf7, 0xf8 */
 	#define MAX_NUN_INT_THRPT_ENH2 (5)
@@ -158,8 +157,6 @@ static int sdio_clear_int(void)
 	reg &= ~0x1;
 	sdio_write_reg(WILC_HOST_RX_CTRL_0, reg);
 
-	int_clrd++;
-
 	return 1;
 }
 #else
@@ -173,8 +170,6 @@ static int sdio_clear_int(void)
 	cmd.address = 0x4;
 	cmd.data = 0;
 	g_sdio.sdio_cmd52(&cmd);
-
-	int_clrd++;
 
 	return cmd.data;
 }
@@ -581,7 +576,7 @@ static int sdio_sync(void)
 }
 #endif
 
-int sdio_init(struct wilc_wlan_inp *inp, wilc_debug_func func)
+int sdio_init(struct wilc_wlan_inp *inp)
 {
 	struct sdio_cmd52_t cmd;
 	int loop;
@@ -603,7 +598,6 @@ int sdio_init(struct wilc_wlan_inp *inp, wilc_debug_func func)
 
 		g_sdio.sdio_cmd52	= inp->io_func.u.sdio.sdio_cmd52;
 		g_sdio.sdio_cmd53	= inp->io_func.u.sdio.sdio_cmd53;
-		g_sdio.sdio_set_max_speed 	= inp->io_func.u.sdio.sdio_set_max_speed;
 	}
 	/*
 	 * function 0 csa enable
@@ -699,9 +693,6 @@ int sdio_init(struct wilc_wlan_inp *inp, wilc_debug_func func)
 	g_sdio.has_thrpt_enh3 = 1;
 	PRINT_D(BUS_DBG, "has_thrpt_enh3 = %d\n", g_sdio.has_thrpt_enh3);
 	 	}
-	int_clrd = 0;
-
-	g_sdio.sdio_set_max_speed();
 
 	return 1;
 _fail_:
