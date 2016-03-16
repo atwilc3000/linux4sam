@@ -1181,7 +1181,7 @@ static int linux_wlan_init_test_config(struct net_device *dev, linux_wlan_t* p_n
 	#ifndef STATIC_MACADDRESS
 	host_int_get_MacAddress(priv->hWILCWFIDrv, mac_add);
 	#endif
-	PRINT_D(INIT_DBG,"MAC address is : %02x-%02x-%02x-%02x-%02x-%02x\n", mac_add[0],mac_add[1],mac_add[2],mac_add[3],mac_add[4],mac_add[5]);
+	PRINT_D(INIT_DBG,"MAC address is : %pM\n", mac_add);
 	chipid = wilc_get_chipid(0);
 
 	
@@ -2171,8 +2171,8 @@ int mac_open(struct net_device *ndev){
 			else
 			{
 				if(memcmp(g_linux_wlan->strInterfaceInfo[i^1].aBSSID, 
-				g_linux_wlan->strInterfaceInfo[i].aSrcAddress, 6))
-				{
+				g_linux_wlan->strInterfaceInfo[i^1].aSrcAddress, 6))
+				{	
 					/*if the other interface is connected as station , set mac 0*/
 					host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,0);
 				}
@@ -2189,8 +2189,7 @@ int mac_open(struct net_device *ndev){
 		}		
 	}
 	status = host_int_get_MacAddress(priv->hWILCWFIDrv, mac_add);
-	PRINT_D(INIT_DBG, "Mac address: %x:%x:%x:%x:%x:%x\n", mac_add[0], mac_add[1], mac_add[2],
-															mac_add[3], mac_add[4], mac_add[5]);
+	PRINT_D(INIT_DBG, "Mac address: %pM\n", mac_add);
 	memcpy(g_linux_wlan->strInterfaceInfo[i].aSrcAddress, mac_add, ETH_ALEN);
 	/* TODO: get MAC address whenever the source is EPROM - hardcoded and copy it to ndev*/
 	memcpy(ndev->dev_addr, g_linux_wlan->strInterfaceInfo[i].aSrcAddress, ETH_ALEN);
@@ -2206,6 +2205,10 @@ int mac_open(struct net_device *ndev){
            						nic->g_struct_frame_reg[0].frame_type,nic->g_struct_frame_reg[0].reg);
    	WILC_WFI_frame_register(nic->wilc_netdev->ieee80211_ptr->wiphy,nic->wilc_netdev,
            						nic->g_struct_frame_reg[1].frame_type,nic->g_struct_frame_reg[1].reg);
+	/*the following call is optional and could be removed if it would call from another function*/
+#if defined(HAS_DUAL_IP_ANTENNA_DEV_MODULE) || defined(HAS_SINGLE_IP_ANTENNA_DEV_MODULE)
+	host_int_set_antenna(priv->hWILCWFIDrv,2);
+#endif		
    	netif_wake_queue(ndev); 
  	g_linux_wlan->open_ifcs++;
 	nic->mac_opened=1;
@@ -2629,8 +2632,7 @@ int mac_ioctl(struct net_device *ndev, struct ifreq *req, int cmd){
 						goto done;
 					}
 
-				if(strncasecmp(buff,"RSSI",length) == 0) 
-				{
+			if (strncasecmp(buff, "RSSI", length) == 0) {
 
 					#ifdef USE_WIRELESS
 					priv = wiphy_priv(nic->wilc_netdev->ieee80211_ptr->wiphy);

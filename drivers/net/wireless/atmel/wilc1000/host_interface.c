@@ -60,6 +60,7 @@ extern WILC_Uint8 g_wilc_initialized;
 
 #define HOST_IF_MSG_SET_TX_POWER	((WILC_Uint16)38)
 #define HOST_IF_MSG_GET_TX_POWER	((WILC_Uint16)39)
+#define HOST_IF_MSG_SET_ANTENNA_MODE				((WILC_Uint16)40)
 #define HOST_IF_MSG_EXIT					((WILC_Uint16)100)
 
 #define HOST_IF_SCAN_TIMEOUT		4000
@@ -3003,52 +3004,48 @@ static int Handle_Key(void * drvHandler,tstrHostIFkeyAttr* pstrHostIFkeyAttr)
 			{
 				
 				PRINT_D(HOSTINF_DBG,"Handling WEP key\n");
-				PRINT_D(GENERIC_DBG,"ID Hostint is %d\n",(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8Wepidx));
+				PRINT_D(GENERIC_DBG,"ID Hostint is %d\n",
+					(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8Wepidx));
 				strWIDList[0].u16WIDid = (WILC_Uint16)WID_11I_MODE;
 				strWIDList[0].enuWIDtype = WID_CHAR;
 				strWIDList[0].s32ValueSize = sizeof(WILC_Char);
-				strWIDList[0].ps8WidVal = (WILC_Sint8*)(&(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8mode));
+				strWIDList[0].ps8WidVal = (WILC_Sint8*)
+					(&(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8mode));
 
-				strWIDList[1].u16WIDid     = WID_AUTH_TYPE;
-    				strWIDList[1].enuWIDtype  = WID_CHAR;
-				strWIDList[1].s32ValueSize = sizeof(WILC_Char);
-    				strWIDList[1].ps8WidVal= (WILC_Sint8*)(&(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.tenuAuth_type));
-
-				strWIDList[2].u16WIDid	= (WILC_Uint16)WID_KEY_ID;
-				strWIDList[2].enuWIDtype	= WID_CHAR;
-
-				strWIDList[2].ps8WidVal	= (WILC_Sint8*)(&(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8Wepidx));
-				strWIDList[2].s32ValueSize = sizeof(WILC_Char);
-			
+				strWIDList[1].u16WIDid     	= WID_AUTH_TYPE;
+    			strWIDList[1].enuWIDtype  	= WID_CHAR;
+				strWIDList[1].s32ValueSize 	= sizeof(WILC_Char);
+    			strWIDList[1].ps8WidVal		= 
+						(WILC_Sint8*)(&(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.tenuAuth_type));
 				
-pu8keybuf = (WILC_Uint8*)WILC_MALLOC(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8WepKeylen);								
-																				   
+				
+				pu8keybuf = (WILC_Uint8*)WILC_MALLOC
+					(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8WepKeylen + 2);																				   
 
 				if(pu8keybuf == NULL)
 				{
-						PRINT_ER("No buffer to send Key\n");
-						return -1;
+					PRINT_ER("No buffer to send Key\n");
+					return -1;
 				}
+				pu8keybuf[0] = pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8Wepidx;
+				pu8keybuf[1] = pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8WepKeylen;
 				
-				WILC_memcpy(pu8keybuf,pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.pu8WepKey,
+				WILC_memcpy(&pu8keybuf[2],pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.pu8WepKey,
 						pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8WepKeylen);
-
 
 				WILC_FREE(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.pu8WepKey);				
 				
-				strWIDList[3].u16WIDid = (WILC_Uint16)WID_WEP_KEY_VALUE;
-				strWIDList[3].enuWIDtype = WID_STR;
-				strWIDList[3].s32ValueSize = pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8WepKeylen;
-				strWIDList[3].ps8WidVal = (WILC_Sint8*)pu8keybuf;
+				strWIDList[2].u16WIDid = (WILC_Uint16)WID_WEP_KEY_VALUE;
+				strWIDList[2].enuWIDtype = WID_STR;
+				strWIDList[2].s32ValueSize = 
+					pstrHostIFkeyAttr->uniHostIFkeyAttr.strHostIFwepAttr.u8WepKeylen + 2;
+				strWIDList[2].ps8WidVal = (WILC_Sint8*)pu8keybuf;
 
 			
-				s32Error = SendConfigPkt(SET_CFG, strWIDList, 4, WILC_TRUE,(WILC_Uint32)pstrWFIDrv);
+				s32Error = SendConfigPkt(SET_CFG, strWIDList, 3, WILC_TRUE,(WILC_Uint32)pstrWFIDrv);
 				WILC_FREE(pu8keybuf);
-
-
 			}
-			#endif
-			
+			#endif			
 			if(pstrHostIFkeyAttr->u8KeyAction & ADDKEY)
 			{
 				PRINT_D(HOSTINF_DBG,"Handling WEP key\n");
@@ -3088,7 +3085,7 @@ pu8keybuf = (WILC_Uint8*)WILC_MALLOC(pstrHostIFkeyAttr->uniHostIFkeyAttr.strHost
 				
 				s32Error = SendConfigPkt(SET_CFG, &strWID, 1, WILC_TRUE,(WILC_Uint32)pstrWFIDrv);
 		}
-		else
+		else if (pstrHostIFkeyAttr->u8KeyAction & DEFAULTKEY)
 		{
 			strWID.u16WIDid	= (WILC_Uint16)WID_KEY_ID;
 			strWID.enuWIDtype	= WID_CHAR;
@@ -3991,7 +3988,7 @@ static void Handle_AddStation(void* drvHandler,tstrWILC_AddStaParam* pstrStation
 	PRINT_D(HOSTINF_DBG,"Handling add station\n");
 	strWID.u16WIDid = (WILC_Uint16)WID_ADD_STA;
 	strWID.enuWIDtype = WID_BIN;
-	strWID.s32ValueSize =WILC_ADD_STA_LENGTH + pstrStationParam->u8NumRates;
+	strWID.s32ValueSize = WILC_ADD_STA_LENGTH + pstrStationParam->u8NumRates;
 
 	strWID.ps8WidVal = WILC_MALLOC(strWID.s32ValueSize);
 	if(strWID.ps8WidVal == NULL)
@@ -4782,6 +4779,27 @@ static WILC_Sint32 Handle_GetTxPwr(void * drvHandler, WILC_Uint8* pu8TxPwr)
 	WILC_SemaphoreRelease(&hWaitResponse, NULL);
 	return s32Error; 
 }
+
+static WILC_Sint32 Handle_SetAntennaMode(void * drvHandler, WILC_Uint8 u8AntennaMode)
+{
+	WILC_Sint32 s32Error = WILC_SUCCESS;
+	tstrWID strWID;
+	tstrWILC_WFIDrv * pstrWFIDrv = (tstrWILC_WFIDrv *)drvHandler;
+	
+	strWID.u16WIDid 	= WID_ANTENNA_SELECTION;
+	strWID.enuWIDtype	= WID_CHAR;
+	strWID.s32ValueSize = sizeof(WILC_Char);
+	strWID.ps8WidVal 	= (WILC_Sint8*)(&u8AntennaMode);
+	printk("set antenna %d\n",u8AntennaMode);
+	s32Error = SendConfigPkt(SET_CFG, &strWID, 1, WILC_TRUE,(WILC_Uint32)pstrWFIDrv);
+		
+	if(s32Error)
+	{
+		PRINT_ER("Failed to send scan paramters config packet\n"); 
+	} 
+	return s32Error; 
+}
+
 /**
 *  @brief hostIFthread
 *  @details 	    Main thread to handle message queue requests 
@@ -5081,6 +5099,13 @@ static void hostIFthread(void* pvArg)
 				Handle_GetTxPwr(strHostIFmsg.drvHandler,&strHostIFmsg.uniHostIFmsgBody.strHostIFTxPwr.u8TxPwr);
 				break;
 			}
+
+			case HOST_IF_MSG_SET_ANTENNA_MODE:
+			{
+				Handle_SetAntennaMode(strHostIFmsg.drvHandler,(WILC_Char)strHostIFmsg.uniHostIFmsgBody.pUserData);
+				break;				
+			}			
+
 			default:
 			{
 				PRINT_ER("[Host Interface] undefined Received Msg ID  \n");
@@ -6489,7 +6514,7 @@ WILC_Sint32 host_int_set_wfi_drv_handler(WILC_Uint32 u32address,WILC_Uint8 u8Mac
 
 	tstrHostIFmsg strHostIFmsg;
 
-	printk("set drv handle = %x , %d\n",u32address,u8MacIndex);
+	PRINT_INFO(HOSTINF_DBG,"set drv handle = %x , %d\n",u32address,u8MacIndex);
 	/* prepare the set driver handler message */
 	
 	WILC_memset(&strHostIFmsg, 0, sizeof(tstrHostIFmsg));
@@ -8813,5 +8838,26 @@ WILC_Sint32 host_int_get_tx_power(WILC_WFIDrvHandle hWFIDrv, WILC_Uint8 *tx_powe
 	WILC_SemaphoreAcquire(&hWaitResponse, NULL);	
 
 	*tx_power = strHostIFmsg.uniHostIFmsgBody.strHostIFTxPwr.u8TxPwr;
+	return s32Error;
+}
+
+WILC_Sint32 host_int_set_antenna(WILC_WFIDrvHandle hWFIDrv, WILC_Uint8 antenna_mode)
+{
+	WILC_Sint32 s32Error = WILC_SUCCESS;	
+	tstrHostIFmsg strHostIFmsg;
+
+	
+	/* prepare the Get RSSI Message */
+	WILC_memset(&strHostIFmsg, 0, sizeof(tstrHostIFmsg));
+
+	strHostIFmsg.u16MsgId 	= HOST_IF_MSG_SET_ANTENNA_MODE;
+	strHostIFmsg.uniHostIFmsgBody.pUserData = (WILC_Char*)antenna_mode;
+	strHostIFmsg.drvHandler	= hWFIDrv;
+	/* send the message */
+	s32Error = 	WILC_MsgQueueSend(&gMsgQHostIF, &strHostIFmsg, sizeof(tstrHostIFmsg), WILC_NULL);
+	if(s32Error){
+		PRINT_ER("Failed to send get host channel param's message queue ");
+		return WILC_FAIL;
+	}	
 	return s32Error;
 }
