@@ -745,9 +745,13 @@ static void CfgConnectResult(tenuConnDisconnEvent enuConnDisconnEvent,
 		{
 			pstrDisconnectNotifInfo->u16reason=1;
 		}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0)
+		cfg80211_disconnected(dev, pstrDisconnectNotifInfo->u16reason, pstrDisconnectNotifInfo->ie,
+						      pstrDisconnectNotifInfo->ie_len, false, GFP_KERNEL);
+#else
 		cfg80211_disconnected(dev, pstrDisconnectNotifInfo->u16reason, pstrDisconnectNotifInfo->ie,
 						      pstrDisconnectNotifInfo->ie_len, GFP_KERNEL);
-
+#endif
 	}
 
 }
@@ -966,6 +970,7 @@ static int WILC_WFI_CfgConnect(struct wiphy *wiphy, struct net_device *dev,
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	WILC_Uint32 i;
+	WILC_Uint32 chosen_bssid_index=u32LastScannedNtwrksCountShadow+1;
 	//SECURITY_T  tenuSecurity_t = NO_SECURITY;
 	WILC_Uint8 u8security = NO_ENCRYPT;
 	AUTHTYPE_T tenuAuth_type = ANY;
@@ -1009,7 +1014,23 @@ static int WILC_WFI_CfgConnect(struct wiphy *wiphy, struct net_device *dev,
 				/* BSSID is not passed from the user, so decision of matching
 				 * is done by SSID only */
 				PRINT_INFO(CFG80211_DBG,"BSSID is not passed from the user\n");
-				break;
+				/*
+				 * Connect to the highest rssi with the required SSID in the shadow table 
+				 * if the connection criteria is based only on the SSID
+				 */
+				if(chosen_bssid_index==(u32LastScannedNtwrksCountShadow+1))
+				{
+					/* For the first matching SSID, save its index */ 
+					chosen_bssid_index=i;
+				}
+				else if(astrLastScannedNtwrksShadow[i].s8rssi>astrLastScannedNtwrksShadow[chosen_bssid_index].s8rssi)
+				{
+				   /* 
+				    * For the next found matching SSID's, save their index if their RSSI is larger 
+				 	* than the previously saved one
+					*/ 
+			    	chosen_bssid_index=i; 
+				}
 			}
 			else
 			{
@@ -1020,17 +1041,19 @@ static int WILC_WFI_CfgConnect(struct wiphy *wiphy, struct net_device *dev,
 							       ETH_ALEN) == 0)
 				{
 					PRINT_INFO(CFG80211_DBG,"BSSID is passed from the user and matched\n");
+					/* if the decision is based on the BSSID, there will be only one matching */
+					chosen_bssid_index=i;
 					break;
 				}
 			}
 		}
 	}
 
-	if(i < u32LastScannedNtwrksCountShadow)
+	if(chosen_bssid_index< u32LastScannedNtwrksCountShadow)
 	{
 		PRINT_D(CFG80211_DBG, "Required bss is in scan results\n");
 
-		pstrNetworkInfo = &(astrLastScannedNtwrksShadow[i]);
+		pstrNetworkInfo = &(astrLastScannedNtwrksShadow[chosen_bssid_index]);
 
 		PRINT_INFO(CFG80211_DBG,"network BSSID to be associated: %x%x%x%x%x%x\n",
 						pstrNetworkInfo->au8bssid[0], pstrNetworkInfo->au8bssid[1],
@@ -1354,8 +1377,6 @@ static int WILC_WFI_add_key(struct wiphy *wiphy, struct net_device *netdev,u8 ke
 				#ifdef WILC_AP_EXTERNAL_MLME
 				if(priv->wdev->iftype == NL80211_IFTYPE_AP)
 				{
-
-					priv->WILC_WFI_wep_default = key_index;
 					priv->WILC_WFI_wep_key_len[key_index] = params->key_len;
 					WILC_memcpy(priv->WILC_WFI_wep_key[key_index], params->key, params->key_len);
 
@@ -1372,8 +1393,9 @@ static int WILC_WFI_add_key(struct wiphy *wiphy, struct net_device *netdev,u8 ke
 					else
 						u8mode = ENCRYPT_ENABLED | WEP | WEP_EXTENDED;
 
-					host_int_add_wep_key_bss_ap(priv->hWILCWFIDrv,params->key,params->key_len,key_index,u8mode,tenuAuth_type);
-				break;
+					host_int_add_wep_key_bss_ap(priv->hWILCWFIDrv,params->key,params->key_len,
+						key_index,u8mode,tenuAuth_type);
+					break;
 				}
 				#endif
 				if(WILC_memcmp(params->key,priv->WILC_WFI_wep_key[key_index],params->key_len))
@@ -1389,7 +1411,8 @@ static int WILC_WFI_add_key(struct wiphy *wiphy, struct net_device *netdev,u8 ke
 						for(i=0;i<params->key_len;i++)
 							PRINT_INFO(CFG80211_DBG, "WEP key value[%d] = %d\n", i, params->key[i]);
 					}
-					host_int_add_wep_key_bss_sta(priv->hWILCWFIDrv,params->key,params->key_len,key_index);
+					host_int_add_wep_key_bss_sta(priv->hWILCWFIDrv,params->key,params->key_len,
+						key_index);
 				}
 
 				break;
@@ -1747,18 +1770,24 @@ static int WILC_WFI_del_key(struct wiphy *wiphy, struct net_device *netdev,
 
 		}
 
-		if(key_index >= 0 && key_index <=3)
+		if(key_index >= 0 && key_index <= 3)
 		{
 			WILC_memset(priv->WILC_WFI_wep_key[key_index], 0, priv->WILC_WFI_wep_key_len[key_index]);
 			priv->WILC_WFI_wep_key_len[key_index] = 0;
 
 			PRINT_D(CFG80211_DBG, "Removing WEP key with index = %d\n",key_index);
-			host_int_remove_wep_key(priv->hWILCWFIDrv,key_index);
+			s32Error = host_int_remove_wep_key(priv->hWILCWFIDrv,key_index);
 		}
 		else
 		{
 			PRINT_D(CFG80211_DBG, "Removing all installed keys\n");
-			host_int_remove_key(priv->hWILCWFIDrv,mac_addr);
+			s32Error = host_int_remove_key(priv->hWILCWFIDrv,mac_addr);
+		}
+		
+		/* return the error code which the sublicant will understand to the sublicant  */
+		if(s32Error)
+		{
+			s32Error = -EINVAL; /* Invalid argument */
 		}
 
 	return s32Error;
@@ -1844,18 +1873,9 @@ static int WILC_WFI_set_default_key(struct wiphy *wiphy,struct net_device *netde
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	struct WILC_WFI_priv* priv;
-
-
 	priv = wiphy_priv(wiphy);
-
 	PRINT_D(CFG80211_DBG,"Setting default key with idx = %d \n", key_index);
-
-	if(key_index!= priv->WILC_WFI_wep_default)
-	{
-
-		host_int_set_WEPDefaultKeyID(priv->hWILCWFIDrv,key_index);
-	}
-
+	host_int_set_WEPDefaultKeyID(priv->hWILCWFIDrv,key_index);
 	return s32Error;
 }
 
@@ -2683,7 +2703,7 @@ void WILC_WFI_p2p_rx (struct net_device *dev,uint8_t *buff, uint32_t size)
 
 						if( (buff[P2P_PUB_ACTION_SUBTYPE] == GO_NEG_REQ ||  buff[P2P_PUB_ACTION_SUBTYPE] == GO_NEG_RSP ) && ( bWilc_ie))
 						{
-								PRINT_D(GENERIC_DBG,"Sending P2P to host without extra elemnt\n");
+							PRINT_D(GENERIC_DBG,"Sending P2P to host without extra elemnt\n");
 							//extra attribute for sig_dbm: signal strength in mBm, or 0 if unknown
 							#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0))
 							cfg80211_rx_mgmt(priv->wdev,s32Freq, 0, buff,size-7,0);
@@ -4157,13 +4177,30 @@ int WILC_WFI_get_tx_power(struct wiphy *wiphy,
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	struct WILC_WFI_priv* priv = wiphy_priv(wiphy);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+	if(!g_linux_wlan->wilc1000_initialized)
+		return WILC_FAIL;
+#endif
+
+	*dbm=0;
 	s32Error = host_int_get_tx_power(priv->hWILCWFIDrv, (WILC_Uint8*)(dbm));
 	PRINT_D(CFG80211_DBG, "Got tx power %d\n", *dbm);
 
 	return s32Error;
 }
 
-#endif /*WILC_AP_EXTERNAL_MLME*/
+int WILC_WFI_set_antenna(struct wiphy *wiphy, u32 tx_ant, u32 rx_ant)
+{
+	WILC_Sint32 s32Error = WILC_SUCCESS;
+	struct WILC_WFI_priv* priv = wiphy_priv(wiphy);
+	
+	PRINT_D(CFG80211_DBG,"Select antenna mode %d\n",tx_ant);
+	s32Error = host_int_set_antenna(priv->hWILCWFIDrv,(WILC_Uint8)tx_ant);
+
+	return s32Error;
+}
+
+#endif /*ATWILC_AP_EXTERNAL_MLME*/
 static struct cfg80211_ops WILC_WFI_cfg80211_ops = {
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
@@ -4235,7 +4272,10 @@ static struct cfg80211_ops WILC_WFI_cfg80211_ops = {
 	#endif
 #endif
 	//.mgmt_tx_cancel_wait = WILC_WFI_mgmt_tx_cancel_wait,
+#if (defined WILC_SPI)
+#else
 	.set_power_mgmt = WILC_WFI_set_power_mgmt,
+#endif
 	.set_cqm_rssi_config = WILC_WFI_set_cqm_rssi_config,
 #endif
 	.suspend = WILC_WFI_suspend,
@@ -4245,6 +4285,7 @@ static struct cfg80211_ops WILC_WFI_cfg80211_ops = {
 #endif
 	.set_tx_power = WILC_WFI_set_tx_power,
 	.get_tx_power = WILC_WFI_get_tx_power,
+	.set_antenna= WILC_WFI_set_antenna,
 };
 
 
@@ -4431,6 +4472,12 @@ struct wireless_dev* WILC_WFI_WiphyRegister(struct net_device *net)
 	/*Set the availaible cipher suites*/
 	wdev->wiphy->cipher_suites = cipher_suites;
 	wdev->wiphy->n_cipher_suites = ARRAY_SIZE(cipher_suites);
+
+	/*bitmap of antennas which are available to be configured as TX or RX antennas
+	   (3) means both antennas are available for TX and RX */
+	wdev->wiphy->available_antennas_tx=0x3;
+	wdev->wiphy->available_antennas_rx=0x3;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
 	/*Setting default managment types: for register action frame:  */
 	wdev->wiphy->mgmt_stypes = wilc_wfi_cfg80211_mgmt_types;
@@ -4447,6 +4494,11 @@ struct wireless_dev* WILC_WFI_WiphyRegister(struct net_device *net)
 #endif
 #else
 	wdev->wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION) | BIT(NL80211_IFTYPE_AP) | BIT(NL80211_IFTYPE_MONITOR);
+#endif
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,39)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,38)
+	wdev->wiphy->flags |= WIPHY_FLAG_SUPPORTS_SEPARATE_DEFAULT_KEYS;
+#endif
 #endif
 	wdev->iftype = NL80211_IFTYPE_STATION;
 
