@@ -253,7 +253,7 @@ struct atmel_mci_slot {
 
 	struct mmc_request	*mrq;
 	struct list_head	queue_node;
-
+	int 				present;
 	unsigned int		clock;
 	unsigned long		flags;
 #define ATMCI_CARD_PRESENT	0
@@ -266,6 +266,12 @@ struct atmel_mci_slot {
 
 	struct timer_list	detect_timer;
 };
+
+/*
+**	keep an array of allocated hosts to be used by sdio drivers for rescanning
+*/
+struct mmc_host* mmc_host_backup[10] = {0};
+
 
 #define atmci_test_and_clear_pending(host, event)		\
 	test_and_clear_bit(event, &host->pending_events)
@@ -1446,14 +1452,15 @@ static int atmci_get_cd(struct mmc_host *mmc)
 {
 	int			present = -ENOSYS;
 	struct atmel_mci_slot	*slot = mmc_priv(mmc);
-
+	#if 0
 	if (gpio_is_valid(slot->detect_pin)) {
 		present = !(gpio_get_value(slot->detect_pin) ^
 			    slot->detect_is_active_high);
 		dev_dbg(&mmc->class_dev, "card is %spresent\n",
 				present ? "" : "not ");
 	}
-
+	#endif
+	present=slot->present;
 	return present;
 }
 
@@ -2153,6 +2160,8 @@ static int atmci_init_slot(struct atmel_mci *host,
 	if (!mmc)
 		return -ENOMEM;
 
+	mmc_host_backup[mmc->index] = mmc;
+
 	slot = mmc_priv(mmc);
 	slot->mmc = mmc;
 	slot->host = host;
@@ -2294,6 +2303,23 @@ static int atmci_configure_dma(struct atmel_mci *host)
 
 	return 0;
 }
+
+/*
+ * Here provide a function to scan card, for some SDIO cards that
+ * may stay in busy status after writing operations. MMC host does
+ * not wait for ready itself. So the driver of this kind of cards
+ * should call this function to check the real status of the card.
+ */
+void atmci_rescan_card(unsigned id, unsigned insert)
+{
+	struct atmel_mci_slot	*slot = mmc_priv(mmc_host_backup [id]);
+	printk("Rescan SDIO , insert=%d\n",insert);
+	BUG_ON(mmc_host_backup [id] == NULL);
+	
+	slot->present=insert?1:0;
+	mmc_detect_change(mmc_host_backup [id] , 0);
+}
+EXPORT_SYMBOL_GPL(atmci_rescan_card);
 
 /*
  * HSMCI (High Speed MCI) module is not fully compatible with MCI module.
