@@ -1142,7 +1142,7 @@
 					| AT91_XDMAC_DT_PERID(21))>;
 				dma-names = "tx", "rx";
 				pinctrl-names = "default";
-				pinctrl-0 = <&pinctrl_usart4i &pinctrl_usart4_rts &pinctrl_usart4_cts>;
+				pinctrl-0 = <&pinctrl_usart4 &pinctrl_usart4_rts &pinctrl_usart4_cts>;
 				clocks = <&usart4_clk>;
 				clock-names = "usart";
 				status = "disabled";
