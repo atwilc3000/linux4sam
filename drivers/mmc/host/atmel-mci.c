@@ -257,7 +257,7 @@ struct atmel_mci_slot {
 
 	struct mmc_request	*mrq;
 	struct list_head	queue_node;
-	int 				present;
+
 	unsigned int		clock;
 	unsigned long		flags;
 #define ATMCI_CARD_PRESENT	0
@@ -1437,16 +1437,14 @@ static int atmci_get_cd(struct mmc_host *mmc)
 {
 	int			present = -ENOSYS;
 	struct atmel_mci_slot	*slot = mmc_priv(mmc);
-	#if 0
+
 	if (gpio_is_valid(slot->detect_pin)) {
 		present = !(gpio_get_value(slot->detect_pin) ^
 			    slot->detect_is_active_high);
 		dev_dbg(&mmc->class_dev, "card is %spresent\n",
 				present ? "" : "not ");
 	}
-	#endif
-	present=slot->present;
-	
+
 	return present;
 }
 
@@ -2324,11 +2322,7 @@ static bool atmci_configure_dma(struct atmel_mci *host)
  */
 void atmci_rescan_card(unsigned id, unsigned insert)
 {
-	struct atmel_mci_slot	*slot = mmc_priv(mmc_host_backup [id]);
-	printk("Rescan SDIO , insert=%d\n",insert);
-	BUG_ON(mmc_host_backup [id] == NULL);
-	
-	slot->present=insert?1:0;
+	printk("Rescan SDIO Card\n");
 	mmc_detect_change(mmc_host_backup [id] , 0);
 }
 EXPORT_SYMBOL_GPL(atmci_rescan_card);
@@ -2587,13 +2581,13 @@ static int atmci_suspend(struct device *dev)
 	struct atmel_mci *host = dev_get_drvdata(dev);
 	int i;
 	int ret;
-
+/*
 	if (!IS_ERR(host->pins_sleep)) {
 		ret = pinctrl_select_state(host->pinctrl, host->pins_sleep);
 		if (ret)
 			dev_err(dev, "could not set pins to sleep state\n");
 	}
-
+*/
 	 for (i = 0; i < ATMCI_MAX_NR_SLOTS; i++) {
 		struct atmel_mci_slot *slot = host->slot[i];
 		int ret;
@@ -2626,12 +2620,13 @@ static int atmci_resume(struct device *dev)
 	int ret = 0;
 
 	/* First go to the default state */
+/*
 	if (!IS_ERR(host->pins_default)) {
 		ret = pinctrl_select_state(host->pinctrl, host->pins_default);
 		if (ret)
 			dev_err(dev, "could not set pins to default state\n");
 	}
-
+*/
 	for (i = 0; i < ATMCI_MAX_NR_SLOTS; i++) {
 		struct atmel_mci_slot *slot = host->slot[i];
 		int err;
