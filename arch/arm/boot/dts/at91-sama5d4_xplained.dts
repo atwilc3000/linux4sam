@@ -81,10 +81,11 @@
 			spi0: spi@f8010000 {
 				cs-gpios = <&pioC 3 0>, <0>, <0>, <0>;
 				status = "okay";
-				m25p80@0 {
-					compatible = "atmel,at25df321a";
-					spi-max-frequency = <50000000>;
+				wilc_spi@0 {
+					compatible = "atmel,wilc_spi";
+					spi-max-frequency = <6000000>;
 					reg = <0>;
+					status = "okay";
 				};
 			};
 
