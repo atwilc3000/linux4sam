@@ -267,6 +267,12 @@ struct atmel_mci_slot {
 	struct timer_list	detect_timer;
 };
 
+/**
+ *	keep an array of allocated hosts to be used by sdio drivers for rescanning
+ */
+struct mmc_host* mmc_host_backup[10] = {0};
+
+
 #define atmci_test_and_clear_pending(host, event)		\
 	test_and_clear_bit(event, &host->pending_events)
 #define atmci_set_completed(host, event)			\
@@ -2152,6 +2158,8 @@ static int atmci_init_slot(struct atmel_mci *host,
 	mmc = mmc_alloc_host(sizeof(struct atmel_mci_slot), &host->pdev->dev);
 	if (!mmc)
 		return -ENOMEM;
+	
+	mmc_host_backup[mmc->index] = mmc;
 
 	slot = mmc_priv(mmc);
 	slot->mmc = mmc;
@@ -2294,6 +2302,18 @@ static int atmci_configure_dma(struct atmel_mci *host)
 
 	return 0;
 }
+/*
+ * Here provide a function to scan card, for some SDIO cards that
+ * may stay in busy status after writing operations. MMC host does
+ * not wait for ready itself. So the driver of this kind of cards
+ * should call this function to check the real status of the card.
+ */
+void atmci_rescan_card(unsigned id, unsigned insert)
+{
+	printk("Rescan SDIO Card\n");
+	mmc_detect_change(mmc_host_backup [id] , 0);
+}
+EXPORT_SYMBOL_GPL(atmci_rescan_card);
 
 /*
  * HSMCI (High Speed MCI) module is not fully compatible with MCI module.
