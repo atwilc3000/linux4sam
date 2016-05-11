@@ -53,6 +53,7 @@
 #endif /* WILC_SDIO */
 #include "at_pwr_dev.h"
 #include "linux_wlan.h"
+#include <linux/pm_runtime.h>
 
 #ifdef DISABLE_PWRSAVE_AND_SCAN_DURING_IP
 static int dev_state_ev_handler(struct notifier_block *this, unsigned long event, void *ptr);
@@ -526,7 +527,7 @@ static int init_irq(struct linux_wlan *p_nic)
 	if ((gpio_request(GPIO_NUM, "WILC_INTR") == 0) &&
 	    (gpio_direction_input(GPIO_NUM) == 0)) {
 		gpio_export(GPIO_NUM, 1);
-		nic->dev_irq_num = OMAP_GPIO_IRQ(GPIO_NUM);
+		nic->dev_irq_num = gpio_to_irq(GPIO_NUM);
 		irq_set_irq_type(nic->dev_irq_num, IRQ_TYPE_LEVEL_LOW);
 	} else {
 		ret = -1;
@@ -931,6 +932,10 @@ static int linux_wlan_start_firmware(struct perInterface_wlan *nic)
 
 	/* wait for mac ready */
 	PRINT_D(INIT_DBG, "Waiting for Firmware to get ready ...\n");
+
+#ifdef WILC_SDIO
+	pm_runtime_get_sync(local_sdio_func->card->host->parent);
+#endif
 
 	/* TicketId908
 	* Waiting for 500ms is much more enough for firmware to respond
@@ -2482,7 +2487,7 @@ static int __init init_wilc_driver(void)
 	PRINT_D(INIT_DBG, "Device has been initialized successfully\n");
 	return 0;
 }
-module_init(init_wilc_driver);
+late_initcall(init_wilc_driver);
 
 static void __exit exit_wilc_driver(void)
 {
