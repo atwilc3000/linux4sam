@@ -81,12 +81,7 @@
 			spi0: spi@f8010000 {
 				cs-gpios = <&pioC 3 0>, <0>, <0>, <0>;
 				status = "okay";
-				wilc_spi@0 {
-					compatible = "atmel,wilc_spi";
-					spi-max-frequency = <6000000>;
-					reg = <0>;
-					status = "okay";
-				};
+				
 			};
 
 			i2c0: i2c@f8014000 {
@@ -126,6 +121,12 @@
 			spi1: spi@fc018000 {
 				cs-gpios = <&pioB 21 0>;
 				status = "okay";
+				wilc_spi@0 {
+					compatible = "atmel,wilc_spi";
+					spi-max-frequency = <6000000>;
+					reg = <0>;
+					status = "okay";
+				};
 			};
 
 			adc0: adc@fc034000 {
