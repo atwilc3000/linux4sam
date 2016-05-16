@@ -12,6 +12,7 @@
 
 #include "wilc_wfi_cfgoperations.h"
 #include "wilc_wlan.c"
+#include "linux_wlan.h"
 #ifdef WILC_SDIO
 #include "linux_wlan_sdio.h"    //tony : for set_wiphy_dev()
 #endif
@@ -30,12 +31,13 @@ extern WILC_Uint16 Set_machw_change_vir_if(WILC_Bool bValue);
 extern int mac_open(struct net_device *ndev);
 extern int mac_close(struct net_device *ndev);
 
-tstrNetworkInfo astrLastScannedNtwrksShadow[MAX_NUM_SCANNED_NETWORKS_SHADOW];
+struct tstrNetworkInfo astrLastScannedNtwrksShadow[MAX_NUM_SCANNED_NETWORKS_SHADOW];
 WILC_Uint32 u32LastScannedNtwrksCountShadow;
 #ifdef DISABLE_PWRSAVE_AND_SCAN_DURING_IP
 WILC_TimerHandle hDuringIpTimer;
 #endif
 WILC_TimerHandle hAgingTimer;
+struct timer_list hEAPFrameBuffTimer;
 static WILC_Uint8 op_ifcs=0;
 extern WILC_Uint8 u8ConnectedSSID[6];
 
@@ -43,7 +45,7 @@ extern WILC_Uint8 u8ConnectedSSID[6];
 WILC_Uint8 g_wilc_initialized = 1;
 extern linux_wlan_t* g_linux_wlan;
 #ifdef DISABLE_PWRSAVE_AND_SCAN_DURING_IP
-extern WILC_Bool g_obtainingIP;
+extern bool g_obtainingIP;
 #endif
 
 #define CHAN2G(_channel, _freq, _flags) {        \
@@ -169,7 +171,7 @@ void clear_shadow_scan(void* pUserVoid){
 
 }
 
-uint32_t get_rssi_avg(tstrNetworkInfo* pstrNetworkInfo)
+uint32_t get_rssi_avg(struct tstrNetworkInfo* pstrNetworkInfo)
 {
 	uint8_t i;
 	int rssi_v = 0;
@@ -194,7 +196,7 @@ void refresh_scan(void* pUserVoid,uint8_t all,WILC_Bool bDirectScan){
 
 	for(i = 0; i < u32LastScannedNtwrksCountShadow; i++)
 	{
-		tstrNetworkInfo* pstrNetworkInfo;
+		struct tstrNetworkInfo* pstrNetworkInfo;
 		pstrNetworkInfo = &(astrLastScannedNtwrksShadow[i]);
 
 
@@ -298,7 +300,7 @@ void clear_duringIP(void* pUserVoid)
 }
 #endif
 
-int8_t is_network_in_shadow(tstrNetworkInfo* pstrNetworkInfo,void* pUserVoid){
+int8_t is_network_in_shadow(struct tstrNetworkInfo* pstrNetworkInfo,void* pUserVoid){
  	struct WILC_WFI_priv* priv;
 	int8_t state = -1;
 	int i;
@@ -321,7 +323,7 @@ int8_t is_network_in_shadow(tstrNetworkInfo* pstrNetworkInfo,void* pUserVoid){
 	return state;
 }
 
-void add_network_to_shadow(tstrNetworkInfo* pstrNetworkInfo,void* pUserVoid, void* pJoinParams){
+void add_network_to_shadow(struct tstrNetworkInfo* pstrNetworkInfo,void* pUserVoid, void* pJoinParams){
  	struct WILC_WFI_priv* priv;
 	int8_t ap_found = is_network_in_shadow(pstrNetworkInfo,pUserVoid);
 	uint32_t ap_index = 0;
@@ -395,7 +397,7 @@ void add_network_to_shadow(tstrNetworkInfo* pstrNetworkInfo,void* pUserVoid, voi
 *  @date
 *  @version	1.0
 */
-static void CfgScanResult(tenuScanEvent enuScanEvent, tstrNetworkInfo* pstrNetworkInfo, void* pUserVoid, void* pJoinParams)
+static void CfgScanResult(enum tenuScanEvent enuScanEvent, struct tstrNetworkInfo* pstrNetworkInfo, void* pUserVoid, void* pJoinParams)
  {
  	struct WILC_WFI_priv* priv;
  	struct wiphy* wiphy;
@@ -564,7 +566,7 @@ static void CfgScanResult(tenuScanEvent enuScanEvent, tstrNetworkInfo* pstrNetwo
 int WILC_WFI_Set_PMKSA(WILC_Uint8 * bssid,struct WILC_WFI_priv* priv)
 {
 	WILC_Uint32 i;
-	WILC_Sint32 s32Error = WILC_SUCCESS;
+	signed int s32Error = WILC_SUCCESS;
 
 
 	for (i = 0; i < priv->pmkid_list.numpmkid; i++)
@@ -608,25 +610,25 @@ int linux_wlan_set_bssid(struct net_device * wilc_netdev,uint8_t * pBSSID,uint8_
 */
 int connecting = 0;
 
-static void CfgConnectResult(tenuConnDisconnEvent enuConnDisconnEvent,
-							   tstrConnectInfo* pstrConnectInfo,
+static void CfgConnectResult(enum tenuConnDisconnEvent enuConnDisconnEvent,
+							   struct tstrConnectInfo* pstrConnectInfo,
 							   WILC_Uint8 u8MacStatus,
-							   tstrDisconnectNotifInfo* pstrDisconnectNotifInfo,
+							   struct tstrDisconnectNotifInfo* pstrDisconnectNotifInfo,
 							   void* pUserVoid)
 {
 	struct WILC_WFI_priv* priv;
 	struct net_device* dev;
 	#ifdef WILC_P2P
-	tstrWILC_WFIDrv * pstrWFIDrv;
+	struct WILC_WFIDrv * pstrWFIDrv;
 	#endif
 	WILC_Uint8 NullBssid[ETH_ALEN] = {0};
 	connecting = 0;
 
 	priv = (struct WILC_WFI_priv*)pUserVoid;
 	dev = priv->dev;
-	#ifdef WILC_P2P
-	pstrWFIDrv=(tstrWILC_WFIDrv * )priv->hWILCWFIDrv;
-	#endif
+#ifdef WILC_P2P
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
+#endif
 
 	if(enuConnDisconnEvent == CONN_DISCONN_EVENT_CONN_RESP)
 	{
@@ -843,7 +845,7 @@ static int WILC_WFI_CfgScan(struct wiphy *wiphy,struct net_device *dev, struct c
 	WILC_Uint32 i;
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	WILC_Uint8 au8ScanChanList[MAX_NUM_SCANNED_NETWORKS];
-	tstrHiddenNetwork strHiddenNetwork;
+	struct tstrHiddenNetwork strHiddenNetwork;
 
 	priv = wiphy_priv(wiphy);
 
@@ -902,7 +904,7 @@ static int WILC_WFI_CfgScan(struct wiphy *wiphy,struct net_device *dev, struct c
 		{
 
 
-			strHiddenNetwork.pstrHiddenNetworkInfo = WILC_MALLOC(request->n_ssids * sizeof(tstrHiddenNetwork));
+			strHiddenNetwork.pstrHiddenNetworkInfo = WILC_MALLOC(request->n_ssids * sizeof(struct tstrHiddenNetwork));
 			strHiddenNetwork.u8ssidnum = request->n_ssids;
 
 
@@ -973,22 +975,21 @@ static int WILC_WFI_CfgConnect(struct wiphy *wiphy, struct net_device *dev,
 	WILC_Uint32 chosen_bssid_index=u32LastScannedNtwrksCountShadow+1;
 	//SECURITY_T  tenuSecurity_t = NO_SECURITY;
 	WILC_Uint8 u8security = NO_ENCRYPT;
-	AUTHTYPE_T tenuAuth_type = ANY;
+	enum AUTHTYPE tenuAuth_type = ANY;
 	WILC_Char * pcgroup_encrypt_val;
 	WILC_Char * pccipher_group;
 	WILC_Char * pcwpa_version;
 
 	struct WILC_WFI_priv* priv;
-	tstrWILC_WFIDrv * pstrWFIDrv;
-	tstrNetworkInfo* pstrNetworkInfo = NULL;
+	struct WILC_WFIDrv * pstrWFIDrv;
+	struct tstrNetworkInfo* pstrNetworkInfo = NULL;
 
 
 	connecting = 1;
 	priv = wiphy_priv(wiphy);
-    pstrWFIDrv = (tstrWILC_WFIDrv *)(priv->hWILCWFIDrv);
+	pstrWFIDrv = (struct WILC_WFIDrv *)(priv->hWILCWFIDrv);
 
 
-	//host_int_set_wfi_drv_handler((WILC_Uint32)priv->hWILCWFIDrv);
 	PRINT_D(CFG80211_DBG,"Connecting to SSID [%s] on netdev [%p] host if [%x]\n",sme->ssid,dev, (WILC_Uint32)priv->hWILCWFIDrv);
 	#ifdef WILC_P2P
 	if(!(WILC_strncmp(sme->ssid,"DIRECT-", 7)))
@@ -1295,7 +1296,7 @@ static int WILC_WFI_disconnect(struct wiphy *wiphy, struct net_device *dev,u16 r
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	struct WILC_WFI_priv* priv;
 	#ifdef WILC_P2P
-	tstrWILC_WFIDrv * pstrWFIDrv;
+	struct WILC_WFIDrv * pstrWFIDrv;
 	#endif
 	uint8_t NullBssid[ETH_ALEN] = {0};
 	connecting = 0;
@@ -1304,7 +1305,7 @@ static int WILC_WFI_disconnect(struct wiphy *wiphy, struct net_device *dev,u16 r
 	/*BugID_5457*/
 	/*Invalidate u8WLANChannel value on wlan0 disconnect*/
 	#ifdef WILC_P2P
-	pstrWFIDrv=(tstrWILC_WFIDrv * )priv->hWILCWFIDrv;
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
 	if(!pstrWFIDrv->u8P2PConnect)
 		u8WLANChannel = INVALID_CHANNEL;
 	#endif
@@ -1316,7 +1317,7 @@ static int WILC_WFI_disconnect(struct wiphy *wiphy, struct net_device *dev,u16 r
 	u8P2Precvrandom=0x00;
 	bWilc_ie = WILC_FALSE;
 	#ifdef WILC_P2P
-	pstrWFIDrv->u64P2p_MgmtTimeout = 0;
+	pstrWFIDrv->p2p_mgmt_timeout = 0;
 	#endif
 
 	s32Error = host_int_disconnect(priv->hWILCWFIDrv, reason_code);
@@ -1355,7 +1356,7 @@ static int WILC_WFI_add_key(struct wiphy *wiphy, struct net_device *netdev,u8 ke
 	#ifdef WILC_AP_EXTERNAL_MLME
 	WILC_Uint8 u8gmode = NO_ENCRYPT;
 	WILC_Uint8 u8pmode = NO_ENCRYPT;
-	AUTHTYPE_T tenuAuth_type = ANY;
+	enum AUTHTYPE tenuAuth_type = ANY;
 	#endif
 
 	priv = wiphy_priv(wiphy);
@@ -1971,7 +1972,7 @@ static int WILC_WFI_get_station(struct wiphy *wiphy, struct net_device *dev,
 
 	if(nic->iftype == STATION_MODE)
 	{
-		tstrStatistics strStatistics;
+		struct tstrStatistics strStatistics;
 		host_int_get_statistics(priv->hWILCWFIDrv,&strStatistics);
 
 
@@ -2125,7 +2126,7 @@ static int  WILC_WFI_disassoc(struct wiphy *wiphy, struct net_device *dev,
 static int WILC_WFI_set_wiphy_params(struct wiphy *wiphy, u32 changed)
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
-	tstrCfgParamVal pstrCfgParamVal;
+	struct tstrCfgParamVal pstrCfgParamVal;
 	struct WILC_WFI_priv* priv;
 
 	priv = wiphy_priv(wiphy);
@@ -2295,7 +2296,7 @@ static int WILC_WFI_del_pmksa(struct wiphy *wiphy, struct net_device *netdev,
 		{
 			/*If bssid is found, reset the values*/
 			PRINT_D(CFG80211_DBG, "Reseting PMKID values\n");
-			WILC_memset(&priv->pmkid_list.pmkidlist[i], 0, sizeof(tstrHostIFpmkid));
+			WILC_memset(&priv->pmkid_list.pmkidlist[i], 0, sizeof(struct tstrHostIFpmkid));
 			flag = PMKID_FOUND;
 			break;
 		}
@@ -2337,7 +2338,7 @@ static int  WILC_WFI_flush_pmksa(struct wiphy *wiphy, struct net_device *netdev)
 	PRINT_D(CFG80211_DBG,  "Flushing  PMKID key values\n");
 
 	/*Get cashed Pmkids and set all with zeros*/
-	WILC_memset(&priv->pmkid_list, 0, sizeof(tstrHostIFpmkidAttr) );
+	WILC_memset(&priv->pmkid_list, 0, sizeof(struct tstrHostIFpmkidAttr) );
 
 	return 0;
 }
@@ -2572,11 +2573,11 @@ void WILC_WFI_p2p_rx (struct net_device *dev,uint8_t *buff, uint32_t size)
 
 	struct WILC_WFI_priv* priv;
 	WILC_Uint32 header,pkt_offset;
-	tstrWILC_WFIDrv * pstrWFIDrv;
+	struct WILC_WFIDrv * pstrWFIDrv;
 	WILC_Uint32 i=0;
 	WILC_Sint32 s32Freq;
 	priv= wiphy_priv(dev->ieee80211_ptr->wiphy);
-	pstrWFIDrv = (tstrWILC_WFIDrv *)priv->hWILCWFIDrv;
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
 
 	//Get WILC header
 	WILC_memcpy(&header, (buff-HOST_HDR_OFFSET), HOST_HDR_OFFSET);
@@ -2639,7 +2640,7 @@ void WILC_WFI_p2p_rx (struct net_device *dev,uint8_t *buff, uint32_t size)
 		{
 			PRINT_D(GENERIC_DBG,"Rx Action Frame Type: %x %x\n", buff[ACTION_SUBTYPE_ID] ,buff[P2P_PUB_ACTION_SUBTYPE]);
 
-			if(priv->bCfgScanning == WILC_TRUE && jiffies >= pstrWFIDrv->u64P2p_MgmtTimeout)
+			if(priv->bCfgScanning == WILC_TRUE && jiffies >= pstrWFIDrv->p2p_mgmt_timeout)
 			{
 				PRINT_D(GENERIC_DBG,"Receiving action frames from wrong channels\n");
 				return;
@@ -2968,7 +2969,7 @@ void WILC_WFI_add_wilcvendorspec(WILC_Uint8 * buff)
 *  @version
 */
 extern linux_wlan_t* g_linux_wlan;
-extern WILC_Bool bEnablePS;
+
 int WILC_WFI_mgmt_tx(struct wiphy *wiphy,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
 			struct wireless_dev *wdev,
@@ -3025,7 +3026,7 @@ int WILC_WFI_mgmt_tx(struct wiphy *wiphy,
 	struct p2p_mgmt_data *mgmt_tx;
 	struct WILC_WFI_priv* priv;
 	WILC_Sint32 s32Error = WILC_SUCCESS;
-	tstrWILC_WFIDrv * pstrWFIDrv;
+	struct WILC_WFIDrv * pstrWFIDrv;
 	WILC_Uint32 i;
 	perInterface_wlan_t* nic;
 	WILC_Uint32 buf_len = len + sizeof(u8P2P_vendorspec) + sizeof(u8P2Plocalrandom);
@@ -3036,7 +3037,7 @@ int WILC_WFI_mgmt_tx(struct wiphy *wiphy,
 	nic = netdev_priv(dev);
 #endif
 	priv = wiphy_priv(wiphy);
-	pstrWFIDrv = (tstrWILC_WFIDrv *)priv->hWILCWFIDrv;
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
 
 	*cookie = (unsigned long)buf;
 	priv->u64tx_cookie = *cookie;
@@ -3174,9 +3175,9 @@ int WILC_WFI_mgmt_tx(struct wiphy *wiphy,
 				}
 
 		PRINT_D(GENERIC_DBG,"TX: ACTION FRAME Type:%x : Chan:%d\n",buf[ACTION_SUBTYPE_ID], chan->hw_value);
-		pstrWFIDrv->u64P2p_MgmtTimeout = (jiffies + msecs_to_jiffies(wait));
+		pstrWFIDrv->p2p_mgmt_timeout = (jiffies + msecs_to_jiffies(wait));
 
-		PRINT_D(GENERIC_DBG,"Current Jiffies: %lu Timeout:%llu\n",jiffies,pstrWFIDrv->u64P2p_MgmtTimeout);
+		PRINT_D(GENERIC_DBG,"Current Jiffies: %lu Timeout:%llu\n",jiffies,pstrWFIDrv->p2p_mgmt_timeout);
 
 		}
 
@@ -3198,13 +3199,13 @@ int   WILC_WFI_mgmt_tx_cancel_wait(struct wiphy *wiphy,
                                u64 cookie)
 {
 	struct WILC_WFI_priv* priv;
-	tstrWILC_WFIDrv * pstrWFIDrv;
+	struct WILC_WFIDrv * pstrWFIDrv;
 	priv = wiphy_priv(wiphy);
-	pstrWFIDrv = (tstrWILC_WFIDrv *)priv->hWILCWFIDrv;
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
 
 
 	PRINT_D(GENERIC_DBG,"Tx Cancel wait :%lu\n",jiffies);
-	pstrWFIDrv->u64P2p_MgmtTimeout = jiffies;
+	pstrWFIDrv->p2p_mgmt_timeout = jiffies;
 
 	if(priv->bInP2PlistenState == WILC_FALSE)
 	{
@@ -3448,6 +3449,16 @@ static int WILC_WFI_change_virt_intf(struct wiphy *wiphy,struct net_device *dev,
 	WILC_Uint8 i;
 	#endif
 
+	struct net_device *net_device_1;
+	struct net_device *net_device_2;
+	struct WILC_WFI_priv* priv_1;
+	struct WILC_WFI_priv* priv_2;
+	
+	net_device_1 = linux_wlan_get_if_netdev(P2P_IFC);
+	net_device_2 = linux_wlan_get_if_netdev(WLAN_IFC);
+	priv_1 = wdev_priv(net_device_1->ieee80211_ptr);
+	priv_2 = wdev_priv(net_device_2->ieee80211_ptr);
+
 	nic = netdev_priv(dev);
 	priv = wiphy_priv(wiphy);
 
@@ -3474,42 +3485,46 @@ static int WILC_WFI_change_virt_intf(struct wiphy *wiphy,struct net_device *dev,
 			priv->wdev->iftype = type;
 			nic->monitor_flag = 0;
 			nic->iftype = STATION_MODE;
-	
+			host_int_set_wfi_drv_handler((unsigned int)priv->hWILCWFIDrv, STATION_MODE, dev->name);
 			host_int_set_operation_mode(priv->hWILCWFIDrv,STATION_MODE);
-	
 			/*Remove the enteries of the previously connected clients*/
 			memset(priv->assoc_stainfo.au8Sta_AssociatedBss, 0, MAX_NUM_STA * ETH_ALEN);
 	
 			bEnablePS = WILC_TRUE;
-			host_int_set_power_mgmt( priv->hWILCWFIDrv, 1, 0);
+			host_int_set_power_mgmt(priv_1->hWILCWFIDrv, 1, 0);
+			host_int_set_power_mgmt(priv_2->hWILCWFIDrv, 1, 0);
 	
 			break;
 			
 		case NL80211_IFTYPE_P2P_CLIENT:
 			connecting = 0;
-			PRINT_D(HOSTAPD_DBG,"Interface type = NL80211_IFTYPE_P2P_CLIENT\n");
+			PRINT_D(HOSTAPD_DBG, "Interface type = NL80211_IFTYPE_P2P_CLIENT\n");
 			
-			host_int_set_operation_mode(priv->hWILCWFIDrv,STATION_MODE);
-				
+
 			dev->ieee80211_ptr->iftype = type;
 			priv->wdev->iftype = type;
 			nic->monitor_flag = 0;
 			nic->iftype = CLIENT_MODE;
-	
-			bEnablePS = WILC_FALSE;
-			host_int_set_power_mgmt(priv->hWILCWFIDrv, 0, 0);
+			bEnablePS = false;
+			host_int_set_wfi_drv_handler((unsigned int)priv->hWILCWFIDrv, STATION_MODE, dev->name);
+			host_int_set_operation_mode(priv->hWILCWFIDrv, STATION_MODE);
+			
+			host_int_set_power_mgmt(priv_1->hWILCWFIDrv, 0, 0);
+			host_int_set_power_mgmt(priv_2->hWILCWFIDrv, 0, 0);
 			break;
 	
 		case NL80211_IFTYPE_AP:
-			bEnablePS = WILC_FALSE;
+			PRINT_D(HOSTAPD_DBG,"Interface type = NL80211_IFTYPE_AP\n");
 			dev->ieee80211_ptr->iftype = type;
 			priv->wdev->iftype = type;
 			nic->iftype = AP_MODE;
+			bEnablePS = false;
 		if(g_linux_wlan->wilc1000_initialized)
 			{
-				host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,0);
-				host_int_set_operation_mode(priv->hWILCWFIDrv,AP_MODE);
-				host_int_set_power_mgmt(priv->hWILCWFIDrv, 0, 0);
+				host_int_set_wfi_drv_handler((unsigned int)priv->hWILCWFIDrv, AP_MODE, dev->name);
+				host_int_set_operation_mode(priv->hWILCWFIDrv, AP_MODE);
+				host_int_set_power_mgmt(priv_1->hWILCWFIDrv, 0, 0);
+				host_int_set_power_mgmt(priv_2->hWILCWFIDrv, 0, 0);
 			}
 			break;
 					
@@ -3522,13 +3537,14 @@ static int WILC_WFI_change_virt_intf(struct wiphy *wiphy,struct net_device *dev,
 			WILC_TimerStart(&hDuringIpTimer, duringIP_TIME, WILC_NULL, WILC_NULL);
 		#endif	
 
-			host_int_set_operation_mode(priv->hWILCWFIDrv,AP_MODE);	
 			dev->ieee80211_ptr->iftype = type;
 			priv->wdev->iftype = type;
 			nic->iftype = GO_MODE;
-			
+			host_int_set_wfi_drv_handler((unsigned int)priv->hWILCWFIDrv, AP_MODE, dev->name);
+			host_int_set_operation_mode(priv->hWILCWFIDrv, AP_MODE);
 			bEnablePS = WILC_FALSE;
-			host_int_set_power_mgmt(priv->hWILCWFIDrv, 0, 0);
+			host_int_set_power_mgmt(priv_1->hWILCWFIDrv, 0, 0);
+			host_int_set_power_mgmt(priv_2->hWILCWFIDrv, 0, 0);
 			break;
 			
 		default:
@@ -3813,7 +3829,7 @@ static int  WILC_WFI_add_station(struct wiphy *wiphy, struct net_device *dev,
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	struct WILC_WFI_priv* priv;
-	tstrWILC_AddStaParam strStaParams={{0}};
+	struct WILC_AddStaParam strStaParams={{0}};
 	perInterface_wlan_t* nic;
 
 
@@ -3960,7 +3976,7 @@ static int WILC_WFI_change_station(struct wiphy *wiphy, struct net_device *dev,
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	struct WILC_WFI_priv* priv;
-	tstrWILC_AddStaParam strStaParams={{0}};
+	struct WILC_AddStaParam strStaParams={{0}};
 	perInterface_wlan_t* nic;
 
 
@@ -4575,6 +4591,10 @@ int WILC_WFI_InitHostInt(struct net_device *net)
 		#ifdef DISABLE_PWRSAVE_AND_SCAN_DURING_IP
 		s32Error = WILC_TimerCreate(&(hDuringIpTimer), clear_duringIP, WILC_NULL);
 		#endif
+
+		/*TicketId1001*/
+		/*Timer to handle eapol 1/4 buffering if needed*/
+		setup_timer(&(hEAPFrameBuffTimer), EAP_buff_timeout, 0);
 	}
 	op_ifcs++;
 	if(s32Error < 0){
@@ -4614,24 +4634,19 @@ int WILC_WFI_InitHostInt(struct net_device *net)
 int WILC_WFI_DeInitHostInt(struct net_device *net)
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
-
 	struct WILC_WFI_priv *priv;
+	perInterface_wlan_t *nic;
+	
 	priv = wdev_priv(net->ieee80211_ptr);
-
-
-
-
-
-
+	nic = netdev_priv(net);
 	WILC_SemaphoreDestroy(&(priv->hSemScanReq),NULL);
 
 	priv->gbAutoRateAdjusted = WILC_FALSE;
-
 	priv->bInP2PlistenState = WILC_FALSE;
 
 	op_ifcs--;
 
-	s32Error = host_int_deinit(priv->hWILCWFIDrv);
+	s32Error = host_int_deinit(priv->hWILCWFIDrv, net->name, nic->iftype);
 	//s32Error = host_int_deinit(priv->hWILCWFIDrv_2);
 
 	/* Clear the Shadow scan */
@@ -4641,6 +4656,7 @@ int WILC_WFI_DeInitHostInt(struct net_device *net)
 	{
 		PRINT_D(CORECONFIG_DBG, "destroy during ip\n");
 		WILC_TimerDestroy(&hDuringIpTimer,WILC_NULL);
+		del_timer_sync(&hEAPFrameBuffTimer);
 	}
 	#endif
 

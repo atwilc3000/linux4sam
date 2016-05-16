@@ -14,6 +14,7 @@
 /*****************************************************************************/
 #include "itypes.h"
 #include "coreconfigurator.h"
+//#include "linux_wlan.h"
 /*****************************************************************************/
 /* Constants                                                                 */
 /*****************************************************************************/
@@ -47,44 +48,6 @@ typedef enum {FRAME_TYPE_CONTROL = 0x04,
               FRAME_TYPE_FORCE_32BIT  = 0xFFFFFFFF
 } tenuBasicFrmType;
 
-/* Frame Type and Subtype Codes (6-bit) */
-typedef enum {ASSOC_REQ             = 0x00,
-              ASSOC_RSP             = 0x10,
-              REASSOC_REQ           = 0x20,
-              REASSOC_RSP           = 0x30,
-              PROBE_REQ             = 0x40,
-              PROBE_RSP             = 0x50,
-              BEACON                = 0x80,
-              ATIM                  = 0x90,
-              DISASOC               = 0xA0,
-              AUTH                  = 0xB0,
-              DEAUTH                = 0xC0,
-              ACTION                = 0xD0,
-              PS_POLL               = 0xA4,
-              RTS                   = 0xB4,
-              CTS                   = 0xC4,
-              ACK                   = 0xD4,
-              CFEND                 = 0xE4,
-              CFEND_ACK             = 0xF4,
-              DATA                  = 0x08,
-              DATA_ACK              = 0x18,
-              DATA_POLL             = 0x28,
-              DATA_POLL_ACK         = 0x38,
-              NULL_FRAME            = 0x48,
-              CFACK                 = 0x58,
-              CFPOLL                = 0x68,
-              CFPOLL_ACK            = 0x78,
-              QOS_DATA              = 0x88,
-              QOS_DATA_ACK          = 0x98,
-              QOS_DATA_POLL         = 0xA8,
-              QOS_DATA_POLL_ACK     = 0xB8,
-              QOS_NULL_FRAME        = 0xC8,
-              QOS_CFPOLL            = 0xE8,
-              QOS_CFPOLL_ACK        = 0xF8,
-              BLOCKACK_REQ          = 0x84,
-              BLOCKACK              = 0x94,
-              FRAME_SUBTYPE_FORCE_32BIT  = 0xFFFFFFFF
-} tenuFrmSubtype;
 
 /* Basic Frame Classes */
 typedef enum{CLASS1_FRAME_TYPE      = 0x00,
@@ -178,7 +141,7 @@ static WILC_Uint16 Res_Len;
 static WILC_Uint8  g_oper_mode    = SET_CFG;
 
 /* WID Switches */
-static tstrWID gastrWIDs[] =
+static struct tstrWID gastrWIDs[] =
 {
     {WID_FIRMWARE_VERSION,          WID_STR},
     {WID_PHY_VERSION,               WID_STR},
@@ -307,7 +270,7 @@ static tstrWID gastrWIDs[] =
 #endif /* MAC_802_11N */
 };
 
-WILC_Uint16 g_num_total_switches = (sizeof(gastrWIDs)/sizeof(tstrWID));
+WILC_Uint16 g_num_total_switches = (sizeof(gastrWIDs)/sizeof(struct tstrWID));
 /*****************************************************************************/
 /* Static Function Declarations                                              */
 /*****************************************************************************/
@@ -529,9 +492,9 @@ INLINE tenuBasicFrmType get_type(WILC_Uint8* header)
 /* This function extracts the 'frame type and sub type' bits from the MAC    */
 /* header of the input frame.                                                */
 /* Returns the value in the LSB of the returned value.                       */
-INLINE tenuFrmSubtype get_sub_type(WILC_Uint8* header)
+INLINE enum tenuFrmSubtype get_sub_type(WILC_Uint8* header)
 {
-    return ((tenuFrmSubtype)(header[0] & 0xFC));
+    return ((enum tenuFrmSubtype)(header[0] & 0xFC));
 }
 
 /* This function extracts the 'to ds' bit from the MAC header of the input   */
@@ -615,7 +578,7 @@ INLINE WILC_Uint16 get_cap_info(WILC_Uint8* data)
 {
     WILC_Uint16 cap_info = 0;
     WILC_Uint16 index    = MAC_HDR_LEN;
-    tenuFrmSubtype st = BEACON;
+    enum tenuFrmSubtype st = BEACON;
 
     st = get_sub_type(data);
 
@@ -789,10 +752,10 @@ WILC_Uint8 get_current_channel(WILC_Uint8 *pu8msa, WILC_Uint16 u16RxLen)
 *  @date			1 Mar 2012
 *  @version		1.0
 */
-WILC_Sint32 ParseNetworkInfo(WILC_Uint8* pu8MsgBuffer, tstrNetworkInfo** ppstrNetworkInfo)
+WILC_Sint32 ParseNetworkInfo(WILC_Uint8* pu8MsgBuffer, struct tstrNetworkInfo** ppstrNetworkInfo)
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
-	tstrNetworkInfo* pstrNetworkInfo = WILC_NULL;
+	struct tstrNetworkInfo* pstrNetworkInfo = WILC_NULL;
 	WILC_Uint8  u8MsgType = 0;
 	WILC_Uint8  u8MsgID = 0;
     WILC_Uint16 u16MsgLen = 0;
@@ -836,8 +799,8 @@ WILC_Sint32 ParseNetworkInfo(WILC_Uint8* pu8MsgBuffer, tstrNetworkInfo** ppstrNe
 		WILC_Uint32 u32Tsf_Lo;
 		WILC_Uint32 u32Tsf_Hi;
 		
-		pstrNetworkInfo = (tstrNetworkInfo*)WILC_MALLOC(sizeof(tstrNetworkInfo));
-		WILC_memset((void*)(pstrNetworkInfo), 0, sizeof(tstrNetworkInfo));
+		pstrNetworkInfo = (struct tstrNetworkInfo*)WILC_MALLOC(sizeof(struct tstrNetworkInfo));
+		WILC_memset((void*)(pstrNetworkInfo), 0, sizeof(struct tstrNetworkInfo));
 
 		pstrNetworkInfo->s8rssi = pu8WidVal[0];
 		
@@ -860,7 +823,9 @@ WILC_Sint32 ParseNetworkInfo(WILC_Uint8* pu8MsgBuffer, tstrNetworkInfo** ppstrNe
 		u32Tsf_Lo = get_beacon_timestamp_lo(pu8msa);
 		u32Tsf_Hi = get_beacon_timestamp_hi(pu8msa);
 
-		pstrNetworkInfo->u64Tsf = u32Tsf_Lo | (u32Tsf_Hi << 32);
+		/*TicketId1023*/
+		pstrNetworkInfo->u64Tsf = u32Tsf_Hi;
+		pstrNetworkInfo->u64Tsf = ((pstrNetworkInfo->u64Tsf) << 32) | u32Tsf_Lo;
 		
 		/* Get SSID */
 		get_ssid(pu8msa, pstrNetworkInfo->au8ssid, &(pstrNetworkInfo->u8SsidLen));
@@ -914,7 +879,7 @@ ERRORHANDLER:
 *  @date		1 Mar 2012
 *  @version		1.0
 */
-WILC_Sint32 DeallocateNetworkInfo(tstrNetworkInfo* pstrNetworkInfo)
+WILC_Sint32 DeallocateNetworkInfo(struct tstrNetworkInfo* pstrNetworkInfo)
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	
@@ -954,16 +919,16 @@ WILC_Sint32 DeallocateNetworkInfo(tstrNetworkInfo* pstrNetworkInfo)
 *  @version		1.0
 */
 WILC_Sint32 ParseAssocRespInfo(WILC_Uint8* pu8Buffer, WILC_Uint32 u32BufferLen, 
-								   tstrConnectRespInfo** ppstrConnectRespInfo)
+								   struct tstrConnectRespInfo** ppstrConnectRespInfo)
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
-	tstrConnectRespInfo* pstrConnectRespInfo = WILC_NULL;	    								
+	struct tstrConnectRespInfo* pstrConnectRespInfo = WILC_NULL;	    								
 	WILC_Uint16 u16AssocRespLen = 0;
 	WILC_Uint8 *pu8IEs = 0;
 	WILC_Uint16 u16IEsLen = 0;
 		
-	pstrConnectRespInfo = (tstrConnectRespInfo*)WILC_MALLOC(sizeof(tstrConnectRespInfo));
-	WILC_memset((void*)(pstrConnectRespInfo), 0, sizeof(tstrConnectRespInfo));
+	pstrConnectRespInfo = (struct tstrConnectRespInfo*)WILC_MALLOC(sizeof(struct tstrConnectRespInfo));
+	WILC_memset((void*)(pstrConnectRespInfo), 0, sizeof(struct tstrConnectRespInfo));
 
 	//u16AssocRespLen = pu8Buffer[0];
 	u16AssocRespLen = (WILC_Uint16)u32BufferLen;	
@@ -1006,7 +971,7 @@ WILC_Sint32 ParseAssocRespInfo(WILC_Uint8* pu8Buffer, WILC_Uint32 u32BufferLen,
 *  @date			2 Apr 2012
 *  @version		1.0
 */
-WILC_Sint32 DeallocateAssocRespInfo(tstrConnectRespInfo* pstrConnectRespInfo)
+WILC_Sint32 DeallocateAssocRespInfo(struct tstrConnectRespInfo* pstrConnectRespInfo)
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	
@@ -1139,7 +1104,7 @@ WILC_Sint32 DeallocateSurveyResults(wid_site_survey_reslts_s* pstrSurveyResults)
 /*****************************************************************************/
 
 void ProcessCharWid(WILC_Char* pcPacket, WILC_Sint32* ps32PktLen,
-					     tstrWID *pstrWID, WILC_Sint8* ps8WidVal)
+					     struct tstrWID *pstrWID, WILC_Sint8* ps8WidVal)
 {
     WILC_Uint8* pu8val = (WILC_Uint8*)ps8WidVal;
     WILC_Uint8 u8val = 0;
@@ -1195,7 +1160,7 @@ void ProcessCharWid(WILC_Char* pcPacket, WILC_Sint32* ps32PktLen,
 /*****************************************************************************/
 
 void ProcessShortWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
-					       tstrWID *pstrWID, WILC_Sint8* ps8WidVal)
+					       struct tstrWID *pstrWID, WILC_Sint8* ps8WidVal)
 {
     WILC_Uint16* pu16val = (WILC_Uint16*)ps8WidVal;
     WILC_Uint16 u16val = 0;
@@ -1252,7 +1217,7 @@ void ProcessShortWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
 /*****************************************************************************/
 
 void ProcessIntWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
-					 tstrWID *pstrWID, WILC_Sint8* ps8WidVal)
+					 struct tstrWID *pstrWID, WILC_Sint8* ps8WidVal)
 {
     WILC_Uint32* pu32val = (WILC_Uint32*)ps8WidVal;
     WILC_Uint32 u32val = 0;
@@ -1312,7 +1277,7 @@ void ProcessIntWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
 /*****************************************************************************/
 
 void ProcessIPwid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
-					tstrWID *pstrWID, WILC_Uint8 *pu8ip)
+					struct tstrWID *pstrWID, WILC_Uint8 *pu8ip)
 {
     WILC_Uint32 u32val = 0;
     WILC_Sint32 s32PktLen = *ps32PktLen;
@@ -1372,7 +1337,7 @@ void ProcessIPwid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
 /*****************************************************************************/
 
 void ProcessStrWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
-					 tstrWID *pstrWID, WILC_Uint8 *pu8val, WILC_Sint32 s32ValueSize)
+					 struct tstrWID *pstrWID, WILC_Uint8 *pu8val, WILC_Sint32 s32ValueSize)
 {
     WILC_Uint16 u16MsgLen = 0;
     WILC_Uint16 idx    = 0;
@@ -1431,7 +1396,7 @@ void ProcessStrWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
 /*****************************************************************************/
 
 void ProcessAdrWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
-					 tstrWID *pstrWID, WILC_Uint8 *pu8val)
+					 struct tstrWID *pstrWID, WILC_Uint8 *pu8val)
 {
     WILC_Uint16 u16MsgLen = 0;   
 	WILC_Sint32 s32PktLen = *ps32PktLen;
@@ -1497,7 +1462,7 @@ void ProcessAdrWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
 /*****************************************************************************/
 
 void ProcessBinWid(WILC_Char* pcPacket,WILC_Sint32* ps32PktLen,
-					 tstrWID *pstrWID, WILC_Uint8 *pu8val, WILC_Sint32 s32ValueSize)
+					 struct tstrWID *pstrWID, WILC_Uint8 *pu8val, WILC_Sint32 s32ValueSize)
 {
    //WILC_ERROR("processing Binary WIDs is not supported \n");
 
@@ -1581,7 +1546,7 @@ WILC_Sint32 further_process_response(WILC_Uint8*   resp,
                                 WILC_Uint16   cfg_len,                               
                                 WILC_Bool    process_wid_num,
                                 WILC_Uint32   cnt,
-								tstrWID* pstrWIDresult)
+								struct tstrWID* pstrWIDresult)
 {
     WILC_Uint32 retval = 0;
     WILC_Uint32 idx = 0;
@@ -1770,7 +1735,7 @@ WILC_Sint32 further_process_response(WILC_Uint8*   resp,
 /*                                                                           */
 /*****************************************************************************/
 
-WILC_Sint32 ParseResponse(WILC_Uint8 *resp,tstrWID* pstrWIDcfgResult)
+WILC_Sint32 ParseResponse(WILC_Uint8 *resp, struct tstrWID* pstrWIDcfgResult)
 {
     WILC_Uint16    u16RespLen = 0;
     WILC_Uint16    u16WIDid  = 0;
@@ -1953,7 +1918,7 @@ WILC_Sint32 CreatePacketHeader(WILC_Char* pcpacket,WILC_Sint32* ps32PacketLength
 */
 
 WILC_Sint32 CreateConfigPacket(WILC_Sint8* ps8packet, WILC_Sint32*ps32PacketLength,
-				tstrWID * pstrWIDs, WILC_Uint32 u32WIDsCount)
+				struct tstrWID * pstrWIDs, WILC_Uint32 u32WIDsCount)
 {	
 	WILC_Sint32 s32Error = WILC_SUCCESS;
 	WILC_Uint32 u32idx = 0;
@@ -2040,7 +2005,7 @@ WILC_Sint32 ConfigWaitResponse(WILC_Char* pcRespBuffer, WILC_Sint32 s32MaxRespBu
 *  @version	1.0
 */
 #ifdef SIMULATION
-WILC_Sint32 SendConfigPkt(WILC_Uint8 u8Mode, tstrWID* pstrWIDs,
+WILC_Sint32 SendConfigPkt(WILC_Uint8 u8Mode, struct tstrWID* pstrWIDs,
 		WILC_Uint32 u32WIDsCount,WILC_Bool bRespRequired,WILC_Uint32 drvHandler)
 {
 	WILC_Sint32 s32Error = WILC_SUCCESS;	
@@ -2250,7 +2215,7 @@ extern wilc_wlan_oup_t* gpstrWlanOps;
 *  @date		1 Mar 2012
 *  @version	1.0
 */
-WILC_Sint32 SendConfigPkt(WILC_Uint8 u8Mode, tstrWID* pstrWIDs,
+WILC_Sint32 SendConfigPkt(WILC_Uint8 u8Mode, struct tstrWID* pstrWIDs,
 		WILC_Uint32 u32WIDsCount,WILC_Bool bRespRequired,WILC_Uint32 drvHandler)
 {
 	WILC_Sint32 counter = 0,ret = 0;

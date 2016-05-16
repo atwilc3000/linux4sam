@@ -9,11 +9,8 @@
 
 #include "wilc_wlan_if.h"
 #include "wilc_wlan.h"
+#include "linux_wlan.h"
 #define INLINE static __inline
-
-#ifdef USE_ANTNENNA_SWITCHING
-#define ANTENNA_SWITCH_GPIO_NUM	3
-#endif
 
 /********************************************
 
@@ -25,7 +22,6 @@ extern wilc_hif_func_t hif_sdio;
 extern wilc_hif_func_t hif_spi;
 extern wilc_cfg_func_t mac_cfg;
 extern void WILC_WFI_mgmt_rx(uint8_t *buff, uint32_t size);
-extern void frmw_to_linux(uint8_t *buff, uint32_t size);
 int sdio_xfer_cnt(void);
 uint32_t wilc_get_chipid(uint8_t update);
 WILC_Uint16 Set_machw_change_vir_if(WILC_Bool bValue);

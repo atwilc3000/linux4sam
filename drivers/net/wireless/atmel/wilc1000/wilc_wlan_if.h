@@ -22,6 +22,7 @@
 
 #include "wilc_type.h"
 #include "linux_wlan_common.h"
+#include "wilc_oswrapper.h"
 
 
 /********************************************
@@ -253,11 +254,11 @@ typedef enum{
 	#endif
 }BEACON_IE;
 #endif
-typedef enum{
+enum BSSTYPE{
 	INFRASTRUCTURE = 0,
 	INDEPENDENT,
 	AP,							
-} BSSTYPE_T;
+};
 
 typedef enum{
 	RATE_AUTO = 0,
@@ -334,12 +335,12 @@ typedef enum {
 	WPA2_AES_TKIP = 0x71,	/* Aes or Tkip */
 } SECURITY_T; 
 
-typedef enum{
+enum AUTHTYPE{
 	OPEN_SYSTEM     = 1,
 	SHARED_KEY      = 2,
 	ANY             		= 3,
    IEEE8021 =5
-} AUTHTYPE_T;
+};
 
 typedef enum {
 	SITE_SURVEY_1CH    = 0,
@@ -914,7 +915,6 @@ typedef enum {
 	WID_SUPP_PASSWORD                  = 0x3011,
 	WID_SITE_SURVEY_RESULTS            = 0x3012,
 	WID_RX_POWER_LEVEL                 = 0x3013,
-	WID_DEL_ALL_RX_BA				= 0x3014,
 	WID_SET_STA_MAC_INACTIVE_TIME   = 0x3017,
 	WID_ADD_WEP_KEY                    = 0x3019,
 	WID_REMOVE_WEP_KEY                 = 0x301A,
@@ -928,9 +928,9 @@ typedef enum {
 	WID_MODEL_NAME					   = 0x3027, /*Added for CAPI tool */
 	WID_MODEL_NUM                      = 0x3028, /*Added for CAPI tool */
 	WID_DEVICE_NAME					    = 0x3029, /*Added for CAPI tool */
-	WID_SET_DRV_HANDLER					= 0x3030,
 
 	/* NMAC String WID list */
+	WID_SET_DRV_HANDLER                = 0x3079,
 	WID_11N_P_ACTION_REQ               = 0x3080,
 	WID_HUT_TEST_ID                    = 0x3081,
 	WID_PMKID_INFO                     = 0x3082,

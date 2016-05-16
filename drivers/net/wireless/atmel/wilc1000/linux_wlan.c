@@ -46,6 +46,8 @@
 #include "linux_wlan_spi.h"
 #endif
 
+#include "linux_wlan.h"
+
 #ifdef WILC_FULLY_HOSTING_AP
 #include "wilc_host_ap.h"
 #endif
@@ -65,7 +67,7 @@
  #define _linux_wlan_device_removal()		{}
 #endif
 #ifdef DISABLE_PWRSAVE_AND_SCAN_DURING_IP
-extern WILC_Bool g_obtainingIP;
+extern bool g_obtainingIP;
 #endif
 extern WILC_Uint16 Set_machw_change_vir_if(WILC_Bool bValue);
 extern void resolve_disconnect_aberration(void* drvHandler);
@@ -124,7 +126,7 @@ static struct notifier_block g_dev_notifier = {
 
 
 #ifndef STA_FIRMWARE
-#define STA_FIRMWARE_1003	"WILC1003_firmware.bin"
+#define STA_FIRMWARE_1003	"wilc1000_wifi_firmware.bin"
 #endif
 
 
@@ -171,7 +173,7 @@ static void wilc_set_multicast_list(struct net_device *dev);
 
 linux_wlan_t* g_linux_wlan = NULL;
 wilc_wlan_oup_t* gpstrWlanOps;
-WILC_Bool bEnablePS = WILC_TRUE;
+bool bEnablePS = WILC_TRUE;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)
 static const struct net_device_ops wilc_netdev_ops = {
@@ -283,7 +285,7 @@ static int dev_state_ev_handler(struct notifier_block *this, unsigned long event
 {
 	struct in_ifaddr *dev_iface = (struct in_ifaddr *)ptr;
 	struct WILC_WFI_priv* priv;
-	tstrWILC_WFIDrv * pstrWFIDrv;
+	struct WILC_WFIDrv * pstrWFIDrv;
 	struct net_device * dev;
 	WILC_Uint8 *pIP_Add_buff;
 	WILC_Sint32 s32status = WILC_FAIL;
@@ -315,7 +317,7 @@ static int dev_state_ev_handler(struct notifier_block *this, unsigned long event
 		PRINT_D(GENERIC_DBG,"No Wireless Priv\n");
 		return NOTIFY_DONE;
 	}
-	pstrWFIDrv = (tstrWILC_WFIDrv *)priv->hWILCWFIDrv;
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
 	nic = netdev_priv(dev);
 	if(nic == NULL || pstrWFIDrv == NULL)
 	{
@@ -345,13 +347,13 @@ static int dev_state_ev_handler(struct notifier_block *this, unsigned long event
 		
 
 			if(bEnablePS == WILC_TRUE)
-				host_int_set_power_mgmt((WILC_WFIDrvHandle)pstrWFIDrv, 1, 0);
+				host_int_set_power_mgmt((struct WFIDrvHandle *)pstrWFIDrv, 1, 0);
 
             PRINT_D(GENERIC_DBG, "[%s] Up IP\n", dev_iface->ifa_label);
 
 			pIP_Add_buff = (char *) (&(dev_iface->ifa_address));
 			PRINT_D(GENERIC_DBG,"IP add=%d:%d:%d:%d \n",pIP_Add_buff[0],pIP_Add_buff[1],pIP_Add_buff[2],pIP_Add_buff[3]);
-			s32status = host_int_setup_ipaddress((WILC_WFIDrvHandle)pstrWFIDrv, pIP_Add_buff, nic->u8IfIdx);
+			s32status = host_int_setup_ipaddress((struct WFIDrvHandle *)pstrWFIDrv, pIP_Add_buff, nic->u8IfIdx);
 
 			break;
 
@@ -366,7 +368,7 @@ static int dev_state_ev_handler(struct notifier_block *this, unsigned long event
 			}
 
 			if(memcmp(dev_iface->ifa_label , wlan_dev_name, 5) == 0)
-		   		host_int_set_power_mgmt((WILC_WFIDrvHandle)pstrWFIDrv, 0, 0);
+		   		host_int_set_power_mgmt((struct WFIDrvHandle *)pstrWFIDrv, 0, 0);
 				
 			resolve_disconnect_aberration(pstrWFIDrv);
 			
@@ -376,7 +378,7 @@ static int dev_state_ev_handler(struct notifier_block *this, unsigned long event
 			pIP_Add_buff = null_ip;
 			PRINT_D(GENERIC_DBG, "IP add=%d:%d:%d:%d \n",pIP_Add_buff[0],pIP_Add_buff[1],pIP_Add_buff[2],pIP_Add_buff[3]);
 			
-			s32status = host_int_setup_ipaddress((WILC_WFIDrvHandle)pstrWFIDrv, pIP_Add_buff, nic->u8IfIdx);
+			s32status = host_int_setup_ipaddress((struct WFIDrvHandle *)pstrWFIDrv, pIP_Add_buff, nic->u8IfIdx);
 
 			break;
 				
@@ -827,6 +829,59 @@ static void linux_wlan_mac_indicate(int flag){
 
 }
 
+/*TicketId1001*/
+/* Free buffered eapol allocated in priv struct */
+void free_EAP_buff_params(void *pUserVoid)
+{
+	struct WILC_WFI_priv *priv;
+
+	priv = (struct WILC_WFI_priv *)pUserVoid;
+
+	/*Free allocated memory for buffered frame*/
+	if (priv->pStrBufferedEAP != NULL) {
+		if (priv->pStrBufferedEAP->pu8buff != NULL) {
+			kfree(priv->pStrBufferedEAP->pu8buff);
+			priv->pStrBufferedEAP->pu8buff = NULL;
+		}
+		kfree(priv->pStrBufferedEAP);
+		priv->pStrBufferedEAP = NULL;
+	}
+}
+
+/*
+ * TicketId1001
+ * Timeout function for a bufferd eapol 1/4
+ * The function checks if successful connection is reported to upper layer,
+ * then pass buffered eapol 1/4
+ */
+void EAP_buff_timeout(unsigned long pUserVoid)
+{
+	u8 null_bssid[ETH_ALEN] = {0};
+	static u8 timeout = 5;
+	signed int status = WILC_FAIL;
+	struct WILC_WFI_priv *priv;
+
+	priv = (struct WILC_WFI_priv *)pUserVoid;
+
+	/*If successful connection is not yet reported, keep waiting*/
+	if (!(memcmp(priv->au8AssociatedBss, null_bssid, ETH_ALEN)) && (timeout-- > 0))	{
+		hEAPFrameBuffTimer.data = (unsigned long)pUserVoid;
+		mod_timer(&hEAPFrameBuffTimer, (jiffies + msecs_to_jiffies(10)));
+		return;
+	}
+	timeout = 5;
+
+	/*Pass frame to upper layer through host interface thread*/
+	status = host_int_send_buffered_eap(priv->hWILCWFIDrv
+					    , frmw_to_linux
+					    , free_EAP_buff_params
+					    , priv->pStrBufferedEAP->pu8buff
+					    , priv->pStrBufferedEAP->u32Size
+					    , priv->pStrBufferedEAP->u32PktOffset
+					    , (void *)priv);
+	if (status)
+		PRINT_ER("Failed so send buffered eap\n");
+}
 struct net_device * GetIfHandler(uint8_t* pMacHeader)
 {
 	uint8_t *Bssid,*Bssid1,offset = 10;
@@ -916,6 +971,12 @@ int linux_wlan_get_num_conn_ifcs(void)
 	}
 	return ret_val;
 }
+
+struct net_device* linux_wlan_get_if_netdev(uint8_t ifc)
+{
+	return g_linux_wlan->strInterfaceInfo[ifc].wilc_netdev;
+}
+
 
 static int linux_wlan_rxq_task(void* vp){
 
@@ -1175,14 +1236,15 @@ static int linux_wlan_init_test_config(struct net_device *dev, linux_wlan_t* p_n
 
 	/*BugID_5077*/
 	struct WILC_WFI_priv *priv;
-	tstrWILC_WFIDrv * pstrWFIDrv;
-	
+	struct WILC_WFIDrv * pstrWFIDrv;
+	perInterface_wlan_t *nic;
+	nic = netdev_priv(dev);
 	PRINT_D(TX_DBG,"Start configuring Firmware\n");
 
 	//get_random_bytes(&mac_add[5], 1);
 
 	priv = wiphy_priv(dev->ieee80211_ptr->wiphy);
-	pstrWFIDrv = (tstrWILC_WFIDrv *)priv->hWILCWFIDrv;
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
 	PRINT_D(INIT_DBG, "Host = %x\n",(WILC_Uint32)pstrWFIDrv);
 
 	chipid = wilc_get_chipid(0);
@@ -1194,9 +1256,9 @@ static int linux_wlan_init_test_config(struct net_device *dev, linux_wlan_t* p_n
 		goto _fail_;
 	}
 
-	*(int*)c_val = (WILC_Uint32)pstrWFIDrv;
-
-	if (!g_linux_wlan->oup.wlan_cfg_set(1, WID_SET_DRV_HANDLER, c_val, 4, 0,0))
+	*(int *)c_val = (unsigned int)nic->iftype;
+	if (!g_linux_wlan->oup.wlan_cfg_set(1, WID_SET_OPERATION_MODE, c_val,
+					    4, 0, 0))
 		goto _fail_;
 	
 	/*to tell fw that we are going to use PC test - WILC specific*/
@@ -2091,34 +2153,16 @@ int mac_open(struct net_device *ndev){
 		if(ndev == g_linux_wlan->strInterfaceInfo[i].wilc_netdev)
 		{
 			g_linux_wlan->strInterfaceInfo[i].drvHandler = (WILC_Uint32)priv->hWILCWFIDrv;
-			if(nic->iftype == AP_MODE)
-				host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,0);
-			else if(linux_wlan_get_num_conn_ifcs() == 0)
-			{
-				host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,g_linux_wlan->open_ifcs);
-			}
-			else
-			{
-				if(memcmp(g_linux_wlan->strInterfaceInfo[i^1].aBSSID, 
-				g_linux_wlan->strInterfaceInfo[i^1].aSrcAddress, 6))
-				{	
-					/*if the other interface is connected as station , set mac 0*/
-					host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,0);
-				}
-				else
-				{
-					/*if the other interface is connected as AP , set mac 1*/
-					host_int_set_wfi_drv_handler(priv->hWILCWFIDrv,1);				
-				}
-			}
-				
-				
+			
+			host_int_set_wfi_drv_handler(priv->hWILCWFIDrv, nic->iftype, ndev->name);
+
 			host_int_set_operation_mode(priv->hWILCWFIDrv, nic->iftype);
 			break;
 		}		
 	}
 	status = host_int_get_MacAddress(priv->hWILCWFIDrv, mac_add);
-	PRINT_D(INIT_DBG, "Mac address: %pM\n", mac_add);
+	PRINT_D(INIT_DBG, "Mac address: %x:%x:%x:%x:%x:%x\n", mac_add[0], mac_add[1], mac_add[2],
+															mac_add[3], mac_add[4], mac_add[5]);
 	memcpy(g_linux_wlan->strInterfaceInfo[i].aSrcAddress, mac_add, ETH_ALEN);
 	/* TODO: get MAC address whenever the source is EPROM - hardcoded and copy it to ndev*/
 	memcpy(ndev->dev_addr, g_linux_wlan->strInterfaceInfo[i].aSrcAddress, ETH_ALEN);
@@ -2183,10 +2227,10 @@ static void wilc_set_multicast_list(struct net_device *dev)
 
 	struct netdev_hw_addr *ha;
 	struct WILC_WFI_priv* priv;
-    	tstrWILC_WFIDrv * pstrWFIDrv;
+	struct WILC_WFIDrv *pstrWFIDrv;
 	int i=0;
 	priv= wiphy_priv(dev->ieee80211_ptr->wiphy);
-	pstrWFIDrv = (tstrWILC_WFIDrv *)priv->hWILCWFIDrv;
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
 
 
 	if (!dev)
@@ -2209,7 +2253,7 @@ static void wilc_set_multicast_list(struct net_device *dev)
     {
     	PRINT_D(INIT_DBG,"Disable multicast filter, retrive all multicast packets\n");
         // get all multicast packets
-	 host_int_setup_multicast_filter((WILC_WFIDrvHandle)pstrWFIDrv, WILC_FALSE, 0);
+	 host_int_setup_multicast_filter((struct WFIDrvHandle *)pstrWFIDrv, WILC_FALSE, 0);
         return;
     }
 	
@@ -2217,7 +2261,7 @@ static void wilc_set_multicast_list(struct net_device *dev)
     if ((dev->mc.count) == 0) 
     {
     	 PRINT_D(INIT_DBG,"Enable multicast filter, retrive directed packets only.\n");
-        host_int_setup_multicast_filter((WILC_WFIDrvHandle)pstrWFIDrv, WILC_TRUE, 0);
+        host_int_setup_multicast_filter((struct WFIDrvHandle *)pstrWFIDrv, WILC_TRUE, 0);
         return;
     }
 	
@@ -2230,7 +2274,7 @@ static void wilc_set_multicast_list(struct net_device *dev)
 	 i++;
     }
 	
-	host_int_setup_multicast_filter((WILC_WFIDrvHandle)pstrWFIDrv, WILC_TRUE, (dev->mc.count));
+	host_int_setup_multicast_filter((struct WFIDrvHandle *)pstrWFIDrv, WILC_TRUE, (dev->mc.count));
 
 	return;
 	
@@ -2264,7 +2308,7 @@ static void wilc_set_multicast_list(struct net_device *dev)
     if ( (dev->flags & IFF_ALLMULTI) ||( dev->mc_count > WILC_MULTICAST_TABLE_SIZE) )
     {
     	 PRINT_D(INIT_DBG,"Disable multicast filter, retrive all multicast packets\n");
-        host_int_setup_multicast_filter((WILC_WFIDrvHandle)gWFiDrvHandle, WILC_FALSE, 0);
+        host_int_setup_multicast_filter((struct WFIDrvHandle *)gWFiDrvHandle, WILC_FALSE, 0);
         return;
     }
 	
@@ -2272,7 +2316,7 @@ static void wilc_set_multicast_list(struct net_device *dev)
     if (dev->mc_count == 0) 
     {
     	 PRINT_D(INIT_DBG,"Enable multicast filter, retrive directed packets only.\n");
-        host_int_setup_multicast_filter((WILC_WFIDrvHandle)gWFiDrvHandle, WILC_TRUE, 0);
+        host_int_setup_multicast_filter((struct WFIDrvHandle *)gWFiDrvHandle, WILC_TRUE, 0);
         return;
     }
 	
@@ -2284,7 +2328,7 @@ static void wilc_set_multicast_list(struct net_device *dev)
 	 i++;
     }
         
-    host_int_setup_multicast_filter((WILC_WFIDrvHandle)gWFiDrvHandle, WILC_TRUE, (dev->mc_count));
+    host_int_setup_multicast_filter((struct WFIDrvHandle *)gWFiDrvHandle, WILC_TRUE, (dev->mc_count));
 	
 }
 #endif
@@ -2383,7 +2427,7 @@ int mac_close(struct net_device *ndev)
 {
 	struct WILC_WFI_priv* priv;
 	perInterface_wlan_t* nic;
-	tstrWILC_WFIDrv * pstrWFIDrv;
+	struct WILC_WFIDrv * pstrWFIDrv;
 	
 	nic = netdev_priv(ndev);
 
@@ -2401,7 +2445,7 @@ int mac_close(struct net_device *ndev)
 		return 0;
 	}
 		
-	pstrWFIDrv = (tstrWILC_WFIDrv *)priv->hWILCWFIDrv;
+	pstrWFIDrv = (struct WILC_WFIDrv *)priv->hWILCWFIDrv;
 	 
 	
   
@@ -2613,6 +2657,8 @@ void frmw_to_linux(uint8_t *buff, uint32_t size,uint32_t pkt_offset){
 	struct iphdr *ih;
 	struct net_device* wilc_netdev;
 	perInterface_wlan_t *nic;
+	struct WILC_WFI_priv *priv;
+	u8 null_bssid[ETH_ALEN] = {0};
 
 	wilc_netdev = GetIfHandler(buff);
 	if(wilc_netdev == NULL)
@@ -2625,8 +2671,50 @@ void frmw_to_linux(uint8_t *buff, uint32_t size,uint32_t pkt_offset){
 
 			frame_len = size;
 			buff_to_send = buff;
+		/*
+		 * TicketId1001
+		 * If eapol frame and successful connection is not yet reported,		 
+		 * buffer it to be passed later.
+		 */
+		priv = wdev_priv(wilc_netdev->ieee80211_ptr);
+		if ((buff_to_send[12] == 0x88 && buff_to_send[13] == 0x8e)
+		    && (nic->iftype == STATION_MODE || nic->iftype == CLIENT_MODE)
+		    && (!(memcmp(priv->au8AssociatedBss, null_bssid, ETH_ALEN)))) {
+				/*Allocate memory*/
+			if (priv->pStrBufferedEAP == NULL) {
+				priv->pStrBufferedEAP = kmalloc(sizeof(struct wilc_buffered_eap), GFP_ATOMIC);
+				if(priv->pStrBufferedEAP != NULL)
+				{
+					priv->pStrBufferedEAP->pu8buff = NULL;
+					priv->pStrBufferedEAP->u32Size = 0;
+					priv->pStrBufferedEAP->u32PktOffset = 0;
+				}
+				else
+				{
+					PRINT_ER("failed to alloc priv->pStrBufferedEAP\n");
+					return;
+				}
+			}
+			else
+			{
+				kfree(priv->pStrBufferedEAP->pu8buff);
+			}
 			
-			
+			priv->pStrBufferedEAP->pu8buff = kmalloc(size + pkt_offset, GFP_ATOMIC);
+
+			priv->pStrBufferedEAP->u32Size = size;
+			priv->pStrBufferedEAP->u32PktOffset = pkt_offset;
+			memcpy(priv->pStrBufferedEAP->pu8buff, buff - pkt_offset, size + pkt_offset);
+
+			/*
+			 * TO DO: Stop timer before starting it
+			 * Wait about 10 ms then check again if successful connection is reported
+			 */
+			hEAPFrameBuffTimer.data = (unsigned long)priv;
+			mod_timer(&hEAPFrameBuffTimer, (jiffies + msecs_to_jiffies(10)));
+			return;
+		}
+
 			/* Need to send the packet up to the host, allocate a skb buffer */
 		    	skb = dev_alloc_skb(frame_len);
 		    	if(skb == NULL){
