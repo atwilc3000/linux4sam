@@ -9,7 +9,7 @@ ccflags-$(CONFIG_WILC1000_SPI) += -DWILC_SPI
 
 ccflags-y += -DSTA_FIRMWARE
 ccflags-y += -DSTA_FIRMWARE_1002=\"atmel/wilc1002_firmware.bin\" \
-		-DSTA_FIRMWARE_1003=\"atmel/wilc1003_firmware.bin\"
+		-DSTA_FIRMWARE_1003=\"atmel/wilc1000_wifi_firmware.bin\"
 
 ccflags-y += -I$(src)/ -DEXPORT_SYMTAB  -D__CHECK_ENDIAN__ -DWILC_ASIC_A0 \
 		-DPLL_WORKAROUND -DCONNECT_DIRECT  -DAGING_ALG \
