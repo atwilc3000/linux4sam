@@ -126,7 +126,7 @@ static struct notifier_block g_dev_notifier = {
 
 
 #ifndef STA_FIRMWARE
-#define STA_FIRMWARE_1003	"wilc1000_wifi_firmware.bin"
+#define STA_FIRMWARE_1003	"atmel/wilc1000_wifi_firmware.bin"
 #endif
 
 
