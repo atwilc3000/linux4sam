@@ -133,6 +133,13 @@ struct wilc_wfi_p2pListenParams
 
 #endif	/*WILC_P2P*/
 
+/* Struct to buffer eapol 1/4 frame */
+struct wilc_buffered_eap {
+	unsigned int u32Size;
+	unsigned int u32PktOffset;
+	u8 *pu8buff;
+};
+
 struct WILC_WFI_priv {
 	struct wireless_dev *wdev;
 	struct cfg80211_scan_request* pstrScanReq;
@@ -162,9 +169,9 @@ struct WILC_WFI_priv {
     spinlock_t lock;
     struct net_device *dev;
     struct napi_struct napi;
- 	WILC_WFIDrvHandle hWILCWFIDrv;
-	WILC_WFIDrvHandle hWILCWFIDrv_2;
-	tstrHostIFpmkidAttr pmkid_list;
+ 	struct WFIDrvHandle *hWILCWFIDrv;
+	struct WFIDrvHandle *hWILCWFIDrv_2;
+	struct tstrHostIFpmkidAttr pmkid_list;
 	struct WILC_WFI_stats netstats;  
 	WILC_Uint8 WILC_WFI_wep_default;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
@@ -183,7 +190,7 @@ struct WILC_WFI_priv {
 	WILC_Bool gbAutoRateAdjusted;
 
 	WILC_Bool bInP2PlistenState;
-	
+	struct wilc_buffered_eap *pStrBufferedEAP;
 };
 
 typedef struct
