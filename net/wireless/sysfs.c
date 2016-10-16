@@ -104,8 +104,9 @@ static int wiphy_suspend(struct device *dev, pm_message_t state)
 
 	rtnl_lock();
 	if (rdev->wiphy.registered) {
-		if (!rdev->wiphy.wowlan_config)
-			cfg80211_leave_all(rdev);
+		//Prevent disconnecting from connected AP's on suspension
+		//if (!rdev->wiphy.wowlan_config)
+			//cfg80211_leave_all(rdev);
 		if (rdev->ops->suspend)
 			ret = rdev_suspend(rdev, rdev->wiphy.wowlan_config);
 		if (ret == 1) {
