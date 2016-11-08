@@ -16,36 +16,35 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef WILC_WLAN_CFG_H
-#define WILC_WLAN_CFG_H
-#include "wilc_wlan.h"
+#ifndef __WILC_MSG_QUEUE_H__
+#define __WILC_MSG_QUEUE_H__
 
-struct wilc_cfg_byte_t {
-	uint16_t id;
-	uint16_t val;
+/* Message Queue type is a structure */
+struct Message {
+	void *pvBuffer;
+	unsigned int u32Length;
+	struct Message *pstrNext;
 };
 
-struct wilc_cfg_hword_t {
-	uint16_t id;
-	uint16_t val;
+struct MsgQueueHandle {
+	struct semaphore hSem;
+	spinlock_t strCriticalSection;
+	bool bExiting;
+	unsigned int u32ReceiversCount;
+	struct Message *pstrMessageList;
 };
 
-struct wilc_cfg_word_t {
-	uint32_t id;
-	uint32_t val;
-};
+signed int WILC_MsgQueueCreate(struct MsgQueueHandle *pHandle);
 
-struct wilc_cfg_str_t {
-	uint32_t id;
-	uint8_t *str;
-};
+signed int WILC_MsgQueueSend(struct MsgQueueHandle *pHandle,
+		const void *pvSendBuffer, u32 u32SendBufferSize);
 
-extern struct wilc_cfg_func mac_cfg;
+signed int WILC_MsgQueueRecv(struct MsgQueueHandle *pHandle,
+		void *pvRecvBuffer, unsigned int u32RecvBufferSize,
+		unsigned int *pu32ReceivedLength);
 
-/*ATWILCSW-403*/
-typedef struct {
-	uint32_t id;
-	uint8_t *bin;
-} wilc_cfg_bin_t;
-
+/*
+ * Destroys an existing  Message queue
+ */
+signed int WILC_MsgQueueDestroy(struct MsgQueueHandle *pHandle);
 #endif
