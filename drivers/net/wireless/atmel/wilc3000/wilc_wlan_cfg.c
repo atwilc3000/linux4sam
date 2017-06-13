@@ -357,13 +357,33 @@ static void wilc_wlan_parse_response_frame(uint8_t *info, int size)
 					if (g_cfg_bin[i].id == WID_NIL)
 						break;
 
-					if (g_cfg_bin[i].id == wid) {					
-						memcpy(g_cfg_bin[i].bin, &info[2], (2+((info[3] << 8) | info[2])));
+					if (g_cfg_bin[i].id == wid)
+					{
+			             uint16_t length      = ((info[3] << 8) | info[2]);
+               			 uint8_t  checksum    = 0;
+						uint16_t i           = 0;
+						 
+					/* Compute the Checksum of received data field */
+                    for(i = 0;i < length;i++)
+                    {
+                        checksum += info[4 + i];
+                    }
+					/* ATWILCSW-491 - Verify the checksum of recieved BIN DATA */
+						if (checksum == info[4 + length])
+						{
+						memcpy(g_cfg_bin[i].bin, &info[2], length + 2);
+							len = 2 + length + 1;   /* value length + data length + checksum */
 						break;
+						}
+					else
+						{
+							PRINT_ER("Parsing WID_BIN_DATA - Checksum Failed!" );
+							return;
+						}
 					} 
 					i++;
 				} while (1);
-				len = 2+((info[3] << 8) | info[2]);
+				
 				break;
 				
 			default:

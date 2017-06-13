@@ -1133,7 +1133,7 @@ static int linux_wlan_init_test_config(struct net_device *dev, struct linux_wlan
 					    1, 0, 0))
 		goto _fail_;
 
-	c_val[0] = G_SHORT_PREAMBLE;
+	c_val[0] = G_AUTO_PREAMBLE;
 	if (!g_linux_wlan->oup.wlan_cfg_set(0, WID_PREAMBLE, c_val, 1, 0, 0))
 		goto _fail_;
 
@@ -1846,6 +1846,9 @@ int mac_open(struct net_device *ndev)
 	
 	memcpy(g_linux_wlan->strInterfaceInfo[ifc].aSrcAddress, mac_add, ETH_ALEN);
 	g_linux_wlan->strInterfaceInfo[ifc].drvHandler = (unsigned int)priv->hWILCWFIDrv;
+
+	/* Added back set operation mode, it restricts wilc1000 to enter PS mode while mac_open */ 
+	host_int_set_operation_mode(priv->hWILCWFIDrv, nic->iftype);
 
 	/* TODO: get MAC address whenever the source is EPROM - hardcoded and copy it to ndev*/
 	memcpy(ndev->dev_addr, g_linux_wlan->strInterfaceInfo[ifc].aSrcAddress,

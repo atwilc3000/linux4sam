@@ -488,7 +488,7 @@ static int sdio_deinit(void *pv)
 }
 
 
-int sdio_reset(void *pv)
+int sdio_reset(void)
 {
 
 	struct sdio_cmd52_t cmd;

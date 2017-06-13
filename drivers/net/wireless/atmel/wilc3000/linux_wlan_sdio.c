@@ -34,7 +34,7 @@ EXPORT_SYMBOL(local_sdio_func);
 
 static isr_handler_t isr_handler;
 extern int sdio_init(struct wilc_wlan_inp *inp);
-extern int sdio_reset(void *pv);
+extern int sdio_reset(void);
 void chip_wakeup(int source);
 void chip_allow_sleep(int source);
 extern void (*pf_chip_sleep_manually)(unsigned int , int );
@@ -194,7 +194,7 @@ static int wilc_sdio_suspend(struct device *dev)
 		mutex_lock((struct mutex*)(g_linux_sdio_os_context.hif_critical_section));
 
 	/*reset SDIO to allow kerenl reintilaization at wake up*/
-	sdio_reset(NULL);
+	sdio_reset();
 	/*claim the host to prevent driver SDIO access before resume is called*/
 	sdio_claim_host(local_sdio_func);
 	return 0 ;

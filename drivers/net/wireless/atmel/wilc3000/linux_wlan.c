@@ -1200,7 +1200,7 @@ static int linux_wlan_init_test_config(struct net_device *dev, struct linux_wlan
 					    1, 0, 0))
 		goto _fail_;
 
-	c_val[0] = G_SHORT_PREAMBLE;
+	c_val[0] = G_AUTO_PREAMBLE;
 	if (!g_linux_wlan->oup.wlan_cfg_set(0, WID_PREAMBLE, c_val, 1, 0, 0))
 		goto _fail_;
 
